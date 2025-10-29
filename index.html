@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Swim Meet PDF Parser</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="container">
+<header>
+<h1>🏊‍♂️ Swim Meet Parser</h1>
+<p>Transform PDF meet sheets into structured data</p>
+</header>
+
+<!-- API Configuration Section -->
+<section id="config-section" class="card">
+<h2>API Configuration</h2>
+<div class="api-config">
+<label for="api-key">DeepSeek API Key:</label>
+<input type="password" id="api-key" placeholder="Enter your DeepSeek API key">
+<button id="save-api-key">Save Key</button>
+<small>Key stored locally in your browser only</small>
+</div>
+</section>
+
+<!-- PDF Upload Section -->
+<section id="upload-section" class="card">
+<h2>Upload Meet PDF</h2>
+<div id="upload-area" class="upload-area">
+<div class="upload-content">
+<div class="upload-icon">📄</div>
+<h3>Select PDF File</h3>
+<p>Tap here to choose a swim meet PDF</p>
+<small>Works on mobile and desktop</small>
+</div>
+<input type="file" id="pdf-file" accept=".pdf" hidden>
+</div>
+<div id="file-info"></div>
+</section>
+
+<!-- Processing Status -->
+<section id="status-section" class="card" hidden>
+<h2>Processing</h2>
+<div id="status-message"></div>
+<div class="progress-bar">
+<div class="progress-fill"></div>
+</div>
+</section>
+
+<!-- Results Section -->
+<section id="results-section" class="card" hidden>
+<h2>Parsed Events</h2>
+<div id="events-count"></div>
+<div id="json-editor"></div>
+<div class="action-buttons">
+<button id="export-json">Export JSON</button>
+<button id="copy-json">Copy to Clipboard</button>
+</div>
+</section>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+<script src="js/config-manager.js"></script>
+<script src="js/pdf-loader.js"></script>
+<script src="js/ai-parser.js"></script>
+<script src="js/json-editor.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
