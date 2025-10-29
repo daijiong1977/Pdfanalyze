@@ -58,7 +58,7 @@ REQUIRED JSON STRUCTURE:
 }
 ],
 temperature: 0.1,
-max_tokens: 4000
+max_tokens: 8000
 };
 }
 
@@ -78,12 +78,50 @@ throw new Error(`DeepSeek API error: ${response.status} ${response.statusText}`)
 
 const data = await response.json();
 
+const rawContent = data.choices[0].message.content;
+
 try {
-return JSON.parse(data.choices[0].message.content);
+return JSON.parse(rawContent);
 } catch (parseError) {
-console.error('Failed to parse AI response:', data.choices[0].message.content);
-throw new Error('AI returned invalid JSON format');
+console.warn('Initial JSON parse failed, attempting repair...', rawContent);
+
+// Attempt to repair truncated JSON
+const repairedJSON = this.repairTruncatedJSON(rawContent);
+try {
+return JSON.parse(repairedJSON);
+} catch (repairError) {
+console.error('Failed to parse AI response after repair:', rawContent);
+throw new Error('AI returned invalid or truncated JSON. Try a shorter PDF or check the API token limit.');
 }
+}
+}
+
+repairTruncatedJSON(jsonString) {
+// Remove incomplete trailing content
+let cleaned = jsonString.trim();
+
+// If truncated mid-string, close the string
+if ((cleaned.match(/"/g) || []).length % 2 !== 0) {
+cleaned += '"';
+}
+
+// Count braces and brackets
+const openBraces = (cleaned.match(/{/g) || []).length;
+const closeBraces = (cleaned.match(/}/g) || []).length;
+const openBrackets = (cleaned.match(/\[/g) || []).length;
+const closeBrackets = (cleaned.match(/\]/g) || []).length;
+
+// Close any unclosed arrays
+for (let i = 0; i < openBrackets - closeBrackets; i++) {
+cleaned += ']';
+}
+
+// Close any unclosed objects
+for (let i = 0; i < openBraces - closeBraces; i++) {
+cleaned += '}';
+}
+
+return cleaned;
 }
 
 validateAndParseResponse(response) {
