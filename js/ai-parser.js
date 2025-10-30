@@ -8,13 +8,14 @@ class DeepSeekParser {
         this.debugLog = [];
     }
 
-    async parseMeetPDF(pdfText, meetName = 'Swim Meet') {
+    async parseMeetPDF(pdfText) {
         this.debugLog = []; // Reset debug log
         this.addDebugEntry('=== STARTING PDF PARSE ===', 'info');
-        this.addDebugEntry(`📋 Meet: ${meetName}`, 'info');
         
-        // Preprocess: Extract entry limit and keep only event pages
-        const { entryLimit, eventPages } = this.preprocessPDF(pdfText);
+        // Preprocess: Extract meet name, entry limit, and keep only event pages
+        const { meetName, entryLimit, eventPages } = this.preprocessPDF(pdfText);
+        
+        this.addDebugEntry(`📋 Meet: ${meetName}`, 'info');
         
         if (!eventPages || eventPages.trim().length === 0) {
             throw new Error('No event pages found in PDF');
@@ -83,8 +84,35 @@ class DeepSeekParser {
         // Split by pages
         const pages = pdfText.split(/PAGE \d+:/);
         
+        let meetName = '';
         let entryLimit = '';
         let eventPages = [];
+        
+        // Extract meet name from first page (usually first 1-3 lines)
+        if (pages.length > 0 && pages[0].trim()) {
+            const firstPage = pages[0].trim();
+            const lines = firstPage.split('\n').filter(line => line.trim().length > 0);
+            
+            // Meet name is usually the first line or first few lines combined
+            // Look for lines before "Entry Limit" or other metadata
+            for (let i = 0; i < Math.min(3, lines.length); i++) {
+                const line = lines[i].trim();
+                
+                // Skip if it's just a date or page number
+                if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(line)) continue;
+                if (/^page\s+\d+/i.test(line)) continue;
+                if (line.length < 5) continue;
+                
+                // Stop if we hit metadata
+                if (/entry limit|session|friday|saturday|sunday/i.test(line)) break;
+                
+                meetName = meetName ? meetName + ' ' + line : line;
+            }
+            
+            if (meetName) {
+                this.addDebugEntry(`📋 Meet Name: ${meetName}`, 'info');
+            }
+        }
         
         for (let i = 0; i < pages.length; i++) {
             let page = pages[i].trim();
@@ -96,7 +124,7 @@ class DeepSeekParser {
             
             // Extract entry limit from any page (usually first page)
             if (!entryLimit && /Entry Limit/i.test(page)) {
-                const limitText = this.extractMeetContext(page);
+                const limitText = this.extractEntryLimit(page);
                 if (limitText) {
                     entryLimit = limitText;
                 }
@@ -118,17 +146,17 @@ class DeepSeekParser {
         }
         
         return {
+            meetName: meetName || 'Swim Meet',
             entryLimit: entryLimit,
             eventPages: eventPages.join('\n\n')
         };
     }
 
-    extractMeetContext(pageText) {
+    extractEntryLimit(pageText) {
         // Find "Entry Limit:" or "Entry Limit" and extract the sentence
         const entryLimitMatch = pageText.match(/Entry Limit[:\s]+([^\n\.]+)/i);
         if (entryLimitMatch) {
-            const entryLimit = entryLimitMatch[1].trim();
-            return entryLimit;
+            return entryLimitMatch[1].trim();
         }
         
         return '';

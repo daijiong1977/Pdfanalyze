@@ -105,12 +105,9 @@ class SwimMeetParserApp {
             this.updateStatus('Reading PDF content...');
             const pdfText = await this.pdfLoader.extractTextFromPDF(this.currentPDFFile);
 
-            // Extract meet name from PDF filename (remove .pdf extension)
-            const meetName = this.currentPDFFile.name.replace(/\.pdf$/i, '');
-
             this.updateStatus('Analyzing with AI...');
             const aiParser = new DeepSeekParser(apiKey);
-            const result = await aiParser.parseMeetPDF(pdfText, meetName);
+            const result = await aiParser.parseMeetPDF(pdfText);
 
             this.showResults(result);
 
