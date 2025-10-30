@@ -1,178 +1,152 @@
-class SwimMeetApp {
+class SwimMeetParserApp {
     constructor() {
         this.configManager = new ConfigManager();
-        this.pdfLoader = new PDFLoader();
-        this.pdfAnalyzer = new PDFAnalyzer();
-        this.jsonEditor = new JSONEditor();
-        this.aiParser = null;
-        this.currentPDFText = null;
-        
-        this.initializeEventListeners();
-        this.checkAPIKey();
+        this.pdfLoader = new PDFTextExtractor();
+        this.jsonEditor = new EventJSONEditor('json-editor');
+        this.currentPDFFile = null;
+
+        this.initializeApp();
     }
 
-    initializeEventListeners() {
-        // API Key Management
-        document.getElementById('api-key-input').addEventListener('input', (e) => {
-            this.configManager.saveAPIKey(e.target.value);
-        });
+    initializeApp() {
+        // Configure PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 
-        // File Upload
-        const uploadArea = document.getElementById('upload-area');
-        const fileInput = document.getElementById('pdf-input');
-
-        uploadArea.addEventListener('click', () => fileInput.click());
-        
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            if (e.dataTransfer.files.length > 0) {
-                fileInput.files = e.dataTransfer.files;
-                this.handleFileSelect(e.dataTransfer.files[0]);
-            }
-        });
-
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                this.handleFileSelect(e.target.files[0]);
-            }
-        });
-
-        // Action Buttons
-        document.getElementById('analyze-btn').addEventListener('click', () => this.analyzePDF());
-        document.getElementById('parse-btn').addEventListener('click', () => this.parsePDF());
-        document.getElementById('export-btn').addEventListener('click', () => this.exportJSON());
-        document.getElementById('copy-json-btn').addEventListener('click', () => this.copyJSON());
-        
-        // Debug Toggle
-        document.getElementById('toggle-debug-btn').addEventListener('click', () => this.toggleDebug());
+        this.setupEventListeners();
+        this.loadSavedConfig();
     }
 
-    checkAPIKey() {
-        const apiKey = this.configManager.getAPIKey();
-        const apiKeyInput = document.getElementById('api-key-input');
-        const apiStatus = document.getElementById('api-status');
-        
+    setupEventListeners() {
+        document.getElementById('save-api-key').addEventListener('click', () => {
+            this.saveApiKey();
+        });
+
+        document.getElementById('upload-area').addEventListener('click', () => {
+            document.getElementById('pdf-file').click();
+        });
+
+        document.getElementById('pdf-file').addEventListener('change', (e) => {
+            this.handleFileSelect(e);
+        });
+
+        document.getElementById('export-json').addEventListener('click', () => {
+            this.exportJSON();
+        });
+
+        document.getElementById('copy-json').addEventListener('click', () => {
+            this.copyToClipboard();
+        });
+
+        document.getElementById('toggle-debug').addEventListener('click', () => {
+            this.toggleDebug();
+        });
+
+        document.getElementById('close-analysis').addEventListener('click', () => {
+            document.getElementById('analysis-section').hidden = true;
+        });
+    }
+
+    loadSavedConfig() {
+        const apiKey = this.configManager.loadApiKey();
         if (apiKey) {
-            apiKeyInput.value = apiKey;
-            apiStatus.textContent = '✅ API key configured';
-            apiStatus.className = 'status-success';
-        } else {
-            apiStatus.textContent = '⚠️ Please enter your DeepSeek API key';
-            apiStatus.className = 'status-warning';
+            document.getElementById('api-key').value = '••••••••••••••••';
         }
     }
 
-    async handleFileSelect(file) {
-        const fileInfo = document.getElementById('file-info');
-        const actionsSection = document.getElementById('actions-section');
-        
-        try {
-            fileInfo.innerHTML = `
-                <p>📄 Selected: <strong>${file.name}</strong></p>
-                <p>Size: ${(file.size / 1024).toFixed(2)} KB</p>
-                <p class="loading">⏳ Loading PDF...</p>
-            `;
-
-            this.currentPDFText = await this.pdfLoader.extractTextFromPDF(file);
-            
-            fileInfo.innerHTML = `
-                <p>✅ <strong>${file.name}</strong> loaded successfully</p>
-                <p>Size: ${(file.size / 1024).toFixed(2)} KB</p>
-            `;
-            
-            actionsSection.hidden = false;
-            
-        } catch (error) {
-            fileInfo.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
-        }
-    }
-
-    async analyzePDF() {
-        if (!this.currentPDFText) {
-            alert('Please upload a PDF first');
-            return;
-        }
-
-        const analysisResult = this.pdfAnalyzer.analyze(this.currentPDFText);
-        const analysisSection = document.getElementById('analysis-section');
-        const analysisDetails = document.getElementById('analysis-details');
-
-        analysisDetails.innerHTML = `
-            <h3>📊 PDF Analysis</h3>
-            <div class="analysis-grid">
-                <div class="analysis-item">
-                    <strong>Total Pages:</strong> ${analysisResult.totalPages}
-                </div>
-                <div class="analysis-item">
-                    <strong>Total Characters:</strong> ${analysisResult.totalChars.toLocaleString()}
-                </div>
-                <div class="analysis-item">
-                    <strong>Estimated Chunks:</strong> ${analysisResult.estimatedChunks}
-                </div>
-            </div>
-            
-            <h4>Pages with Events:</h4>
-            <ul>
-                ${analysisResult.pagesWithEvents.map(p => 
-                    `<li>Page ${p.pageNum}: ${p.eventCount} events detected</li>`
-                ).join('')}
-            </ul>
-            
-            <h4>Content Preview (First 500 chars):</h4>
-            <pre class="preview">${analysisResult.preview}</pre>
-        `;
-
-        analysisSection.hidden = false;
-        analysisSection.scrollIntoView({ behavior: 'smooth' });
-    }
-
-    async parsePDF() {
-        const apiKey = this.configManager.getAPIKey();
+    saveApiKey() {
+        const apiKey = document.getElementById('api-key').value.trim();
         if (!apiKey) {
-            alert('Please enter your DeepSeek API key first');
+            alert('Please enter your DeepSeek API key');
             return;
         }
 
-        if (!this.currentPDFText) {
-            alert('Please upload a PDF first');
-            return;
-        }
+        this.configManager.saveApiKey(apiKey);
+        alert('API key saved successfully!');
+        document.getElementById('api-key').value = '••••••••••••••••';
+    }
 
-        const parseBtn = document.getElementById('parse-btn');
-        parseBtn.disabled = true;
-        parseBtn.textContent = '⏳ Parsing...';
+    async handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (!file) return;
 
         try {
-            this.aiParser = new DeepSeekParser(apiKey);
-            const result = await this.aiParser.parseMeetPDF(this.currentPDFText);
-            
-            // Store debug log globally
-            window.parserDebugLog = result.debugLog;
-            
-            this.showResults(result);
-            
+            this.pdfLoader.validatePDFFile(file);
+            this.currentPDFFile = file;
+
+            document.getElementById('file-info').innerHTML = `
+                ✅ <strong>${file.name}</strong>
+                (${(file.size / 1024 / 1024).toFixed(1)}MB)
+                <br>
+                <button onclick="app.analyzePDFFile()">📊 Analyze PDF</button>
+                <button onclick="app.processPDF()">🚀 Parse PDF</button>
+            `;
         } catch (error) {
-            alert(`Parsing error: ${error.message}`);
-        } finally {
-            parseBtn.disabled = false;
-            parseBtn.textContent = '🚀 Parse PDF';
+            alert(error.message);
         }
+    }
+
+    async analyzePDFFile() {
+        try {
+            this.showStatus('Analyzing PDF...');
+
+            const pdfText = await this.pdfLoader.extractText(this.currentPDFFile);
+            const analyzer = new PDFAnalyzer();
+            const report = analyzer.analyzePDF(pdfText);
+
+            document.getElementById('analysis-report').textContent = report;
+            document.getElementById('analysis-section').hidden = false;
+            document.getElementById('status-section').hidden = true;
+        } catch (error) {
+            alert('Analysis failed: ' + error.message);
+            this.hideStatus();
+        }
+    }
+
+    async processPDF() {
+        const apiKey = this.configManager.loadApiKey();
+        if (!apiKey) {
+            alert('Please save your DeepSeek API key first!');
+            return;
+        }
+
+        if (!this.currentPDFFile) {
+            alert('Please select a PDF file first!');
+            return;
+        }
+
+        try {
+            this.showStatus('Extracting text from PDF...');
+
+            const pdfText = await this.pdfLoader.extractText(this.currentPDFFile);
+
+            this.showStatus('Parsing events with AI...');
+
+            const parser = new DeepSeekParser(apiKey);
+            const result = await parser.parseMeetPDF(pdfText);
+
+            this.showResults(result);
+
+        } catch (error) {
+            alert('Processing failed: ' + error.message);
+            console.error(error);
+            this.hideStatus();
+        }
+    }
+
+    showStatus(message) {
+        document.getElementById('status-message').textContent = message;
+        document.getElementById('status-section').hidden = false;
+    }
+
+    hideStatus() {
+        document.getElementById('status-section').hidden = true;
     }
 
     showResults(result) {
-        const resultsSection = document.getElementById('results-section');
-        const eventsCount = document.getElementById('events-count');
+        this.hideStatus();
 
+        // Build meet info HTML
         let meetInfoHtml = '';
         if (result.meetInfo) {
             meetInfoHtml = `<br>📋 Meet: ${result.meetInfo.name}`;
@@ -190,51 +164,20 @@ class SwimMeetApp {
             }
         }
 
-        eventsCount.innerHTML = `
-            ✅ Found <strong>${result.events.length}</strong> events
-            ${meetInfoHtml}
-        `;
-        
-        this.jsonEditor.renderEditableTable(result.events);
+        document.getElementById('events-count').innerHTML =
+            `✅ Found ${result.events.length} events${meetInfoHtml}`;
 
-        resultsSection.hidden = false;
-        
-        // Render debug log
-        this.renderDebugLog();
-        
-        // Scroll to results
-        resultsSection.scrollIntoView({ behavior: 'smooth' });
-    }
+        this.jsonEditor.renderTable(result.events);
+        document.getElementById('results-section').hidden = false;
 
-    toggleDebug() {
-        const debugPanel = document.getElementById('debug-panel');
-        debugPanel.hidden = !debugPanel.hidden;
-        
-        const btn = document.getElementById('toggle-debug-btn');
-        btn.textContent = debugPanel.hidden ? '🔍 Show Debug Log' : '🔍 Hide Debug Log';
-    }
-
-    renderDebugLog() {
-        const debugContent = document.getElementById('debug-content');
-        
-        if (!window.parserDebugLog || window.parserDebugLog.length === 0) {
-            debugContent.innerHTML = '<p>No debug information available</p>';
-            return;
-        }
-
-        const logHtml = window.parserDebugLog.map(entry => {
-            const typeClass = entry.type === 'error' ? 'log-error' : 
-                            entry.type === 'success' ? 'log-success' : 'log-info';
-            return `<div class="log-entry ${typeClass}">[${entry.timestamp}] ${entry.message}</div>`;
-        }).join('');
-
-        debugContent.innerHTML = logHtml;
+        // Store debug log
+        this.currentDebugLog = result.debugLog || [];
     }
 
     exportJSON() {
-        const events = this.jsonEditor.getEvents();
-        const json = JSON.stringify(events, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
+        const events = this.jsonEditor.getEditedData();
+        const jsonStr = JSON.stringify(events, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -243,21 +186,40 @@ class SwimMeetApp {
         URL.revokeObjectURL(url);
     }
 
-    copyJSON() {
-        const events = this.jsonEditor.getEvents();
-        const json = JSON.stringify(events, null, 2);
-        navigator.clipboard.writeText(json).then(() => {
-            const btn = document.getElementById('copy-json-btn');
-            const originalText = btn.textContent;
-            btn.textContent = '✅ Copied!';
-            setTimeout(() => {
-                btn.textContent = originalText;
-            }, 2000);
+    copyToClipboard() {
+        const events = this.jsonEditor.getEditedData();
+        const jsonStr = JSON.stringify(events, null, 2);
+        navigator.clipboard.writeText(jsonStr).then(() => {
+            alert('JSON copied to clipboard!');
         });
+    }
+
+    toggleDebug() {
+        const debugSection = document.getElementById('debug-section');
+        const button = document.getElementById('toggle-debug');
+
+        if (debugSection.hidden) {
+            this.renderDebugLog();
+            debugSection.hidden = false;
+            button.textContent = 'Hide Debug Log';
+        } else {
+            debugSection.hidden = true;
+            button.textContent = 'Show Debug Log';
+        }
+    }
+
+    renderDebugLog() {
+        const debugLog = this.currentDebugLog || [];
+        const debugHtml = debugLog.map(entry => {
+            const className = entry.type === 'error' ? 'debug-error' :
+                             entry.type === 'success' ? 'debug-success' :
+                             entry.type === 'warning' ? 'debug-warning' : 'debug-info';
+            return `<div class="debug-entry ${className}">[${entry.timestamp}] ${entry.message}</div>`;
+        }).join('');
+
+        document.getElementById('debug-log').innerHTML = debugHtml || '<p>No debug log available</p>';
     }
 }
 
-// Initialize app when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    new SwimMeetApp();
-});
+// Initialize app
+const app = new SwimMeetParserApp();
