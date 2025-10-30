@@ -234,11 +234,11 @@ CRITICAL FLORIDA SWIMMING NOTATION RULES:
 MEET CONTEXT (Rules and Session Info):
 ${meetContext || 'No additional context available'}
 
-CHUNKING NOTE: You are processing chunk ${chunkNum} of ${totalChunks}. Extract ALL events you see, even if they seem partial. Duplicate event numbers across chunks will be merged.
+CHUNKING NOTE: You are processing chunk ${chunkNum} of ${totalChunks}. Extract ALL events you see, even if they seem partial or incomplete. Duplicate event numbers across chunks will be merged later.
 
-IMPORTANT: Use the meet context above to determine session days (Friday/Saturday/Sunday) and swimmer limits. If you find NO events in this chunk, return valid JSON with an empty events array.
+CRITICAL: If this chunk has NO complete events (just headers, partial data, or page breaks), return {"meetInfo": null, "events": []}. Do not attempt to create events from insufficient data.
 
-OUTPUT FORMAT: Return ONLY valid JSON, no markdown, no explanations. Must be parseable by JSON.parse().`
+OUTPUT FORMAT: Return ONLY valid JSON, no markdown, no explanations, no apologies. Must be parseable by JSON.parse().`
                 },
                 {
                     role: "user",
@@ -271,7 +271,8 @@ REQUIRED JSON STRUCTURE:
             ],
             temperature: 0.1,
             max_tokens: this.maxTokens,
-            stream: true
+            stream: true,
+            response_format: { type: "json_object" }
         };
     }
 
@@ -353,7 +354,13 @@ REQUIRED JSON STRUCTURE:
                 return parsed;
             } catch (repairError) {
                 this.addDebugEntry(`Repair failed: ${repairError.message}`, 'error');
-                throw new Error('AI returned invalid or truncated JSON. Try a shorter PDF or check the API token limit.');
+                this.addDebugEntry(`Final JSON attempt failed. Returning empty result for this chunk.`, 'warning');
+                
+                // Return empty result instead of throwing - let other chunks succeed
+                return {
+                    meetInfo: null,
+                    events: []
+                };
             }
         }
     }
