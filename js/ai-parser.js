@@ -198,7 +198,8 @@ DAY AND SESSION EXTRACTION (CRITICAL):
 - Headers like "Saturday PM" or "Friday AM" apply to ALL events in that section
 - If you see a day/time header (Friday/Saturday/Sunday AM/PM), apply it to ALL events below until you see a new header
 - NEVER leave day or session fields empty - use the most recent header information
-- Format: "day" = "Friday"/"Saturday"/"Sunday", "session" = "AM"/"PM" or "Session 1"/"Session 2"
+- Format: "day" = "Friday"/"Saturday"/"Sunday", "session" = "AM"/"PM"
+- If no session is specified but you have a day, use the day and set session to "AM" by default
 
 SIDE-BY-SIDE FORMAT HANDLING:
 - PDFs may have columns like: "Girls Event # | Event | Boys Event #"
@@ -239,7 +240,7 @@ REQUIRED JSON FORMAT - Return exactly this structure:
     {
       "eventNumber": 1,
       "day": "Friday",
-      "session": "Session 1",
+      "session": "AM",
       "description": "8 & Under 25 Free",
       "ageGroup": "8 & Under",
       "eventGender": "F",
@@ -249,6 +250,12 @@ REQUIRED JSON FORMAT - Return exactly this structure:
     }
   ]
 }
+
+CRITICAL REMINDER FOR DAY/SESSION:
+- Look for headers like "Saturday PM", "Friday AM", "Sunday" at the TOP of event sections
+- If you see "Saturday PM" above a group of events, ALL those events get: "day": "Saturday", "session": "PM"
+- NEVER leave "day" or "session" as null or empty
+- Example: If text shows "Saturday PM" then Event #39 below it, that event MUST have "day": "Saturday" and "session": "PM"
 
 REMEMBER: Output must be pure JSON only. No backticks, no additional text, no markdown formatting, no code blocks. Just the raw JSON object starting with { and ending with }.`
                 }
