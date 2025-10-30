@@ -34,12 +34,14 @@ document.getElementById('export-json').addEventListener('click', () => {
 this.exportJSON();
 });
 
-document.getElementById('copy-json').addEventListener('click', () => {
-this.copyToClipboard();
-});
-}
+        document.getElementById('copy-json').addEventListener('click', () => {
+            this.copyToClipboard();
+        });
 
-loadSavedConfig() {
+        document.getElementById('toggle-debug').addEventListener('click', () => {
+            this.toggleDebug();
+        });
+    }loadSavedConfig() {
 const apiKey = this.configManager.loadApiKey();
 if (apiKey) {
 document.getElementById('api-key').value = '••••••••••••••••';
@@ -134,17 +136,68 @@ const progressFill = document.querySelector('.progress-fill');
 progressFill.style.width = '0%';
 }
 
-showResults(result) {
-const resultsSection = document.getElementById('results-section');
-const eventsCount = document.getElementById('events-count');
+    showResults(result) {
+        const resultsSection = document.getElementById('results-section');
+        const eventsCount = document.getElementById('events-count');
 
-eventsCount.textContent = `Found ${result.events.length} events`;
-this.jsonEditor.renderEditableTable(result.events);
+        eventsCount.innerHTML = `
+            ✅ Found <strong>${result.events.length}</strong> events
+            ${result.meetInfo ? `<br>📋 Meet: ${result.meetInfo.name}` : ''}
+        `;
+        
+        this.jsonEditor.renderEditableTable(result.events);
 
-resultsSection.hidden = false;
-}
+        resultsSection.hidden = false;
+        
+        // Render debug log
+        this.renderDebugLog();
+        
+        // Scroll to results
+        resultsSection.scrollIntoView({ behavior: 'smooth' });
+    }
 
-exportJSON() {
+    toggleDebug() {
+        const debugSection = document.getElementById('debug-section');
+        const toggleBtn = document.getElementById('toggle-debug');
+        
+        if (debugSection.hidden) {
+            debugSection.hidden = false;
+            toggleBtn.textContent = 'Hide Debug Log';
+            debugSection.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            debugSection.hidden = true;
+            toggleBtn.textContent = 'Show Debug Log';
+        }
+    }
+
+    renderDebugLog() {
+        const debugLog = window.parserDebugLog || [];
+        const debugLogDiv = document.getElementById('debug-log');
+        
+        if (debugLog.length === 0) {
+            debugLogDiv.innerHTML = '<div class="debug-entry">No debug information available.</div>';
+            return;
+        }
+        
+        let html = '';
+        for (const entry of debugLog) {
+            const typeClass = entry.type === 'chunk' ? 'debug-chunk-header' :
+                             entry.type === 'error' ? 'debug-error' :
+                             entry.type === 'response' ? 'debug-response' : '';
+            
+            html += `<div class="debug-entry ${typeClass}">`;
+            html += `[${entry.timestamp}] ${this.escapeHtml(entry.message)}`;
+            html += `</div>`;
+        }
+        
+        debugLogDiv.innerHTML = html;
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }exportJSON() {
 const jsonData = this.jsonEditor.exportJSON();
 const blob = new Blob([jsonData], { type: 'application/json' });
 const url = URL.createObjectURL(blob);
