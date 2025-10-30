@@ -30,7 +30,7 @@ class DeepSeekParser {
             
             try {
                 const prompt = this.buildSwimMeetPrompt(chunks[i], meetContext, i + 1, chunks.length);
-                const response = await this.callDeepSeekAPIStream(prompt);
+                const response = await this.callDeepSeekAPI(prompt);
                 
                 if (!meetInfo && response.meetInfo) {
                     meetInfo = response.meetInfo;
@@ -271,12 +271,11 @@ REQUIRED JSON STRUCTURE:
             ],
             temperature: 0.1,
             max_tokens: this.maxTokens,
-            stream: true,
             response_format: { type: "json_object" }
         };
     }
 
-    async callDeepSeekAPIStream(prompt) {
+    async callDeepSeekAPI(prompt) {
         const response = await fetch(this.baseURL, {
             method: 'POST',
             headers: {
@@ -292,141 +291,32 @@ REQUIRED JSON STRUCTURE:
             throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullContent = '';
-        let buffer = '';
-
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                
-                // Keep the last incomplete line in buffer
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        if (data === '[DONE]') continue;
-                        
-                        try {
-                            const parsed = JSON.parse(data);
-                            const content = parsed.choices[0]?.delta?.content;
-                            if (content) {
-                                fullContent += content;
-                            }
-                        } catch (e) {
-                            // Skip invalid JSON chunks
-                        }
-                    }
-                }
-            }
-        } catch (error) {
-            this.addDebugEntry(`Stream reading error: ${error.message}`, 'error');
-            throw error;
+        const result = await response.json();
+        const content = result.choices[0]?.message?.content;
+        
+        if (!content) {
+            this.addDebugEntry(`No content in API response`, 'error');
+            throw new Error('No content in API response');
         }
 
-        // Log raw response
-        this.addDebugEntry(`RAW STREAMED RESPONSE (${fullContent.length} chars):\n${fullContent}`, 'response');
-
-        // Extract JSON from markdown code fences if present
-        let jsonContent = this.extractJSON(fullContent);
-        
-        // Debug: show first 200 chars of extracted content
-        const preview = jsonContent.substring(0, 200);
-        this.addDebugEntry(`Extracted JSON preview: ${preview}...`, 'info');
+        // Log response size
+        this.addDebugEntry(`Received response: ${content.length} chars`, 'info');
 
         try {
-            const parsed = JSON.parse(jsonContent);
+            // With response_format json_object, DeepSeek should return clean JSON
+            const parsed = JSON.parse(content);
             this.addDebugEntry(`✅ Successfully parsed JSON with ${parsed.events?.length || 0} events`, 'success');
             return parsed;
         } catch (parseError) {
-            this.addDebugEntry(`Parse failed, attempting repair... Error: ${parseError.message}`, 'warning');
+            this.addDebugEntry(`❌ Parse failed: ${parseError.message}`, 'error');
+            this.addDebugEntry(`Response content: ${content.substring(0, 500)}...`, 'error');
             
-            // Try to repair truncated JSON
-            const repaired = this.repairTruncatedJSON(jsonContent);
-            const repairedPreview = repaired.substring(0, 200);
-            this.addDebugEntry(`Repaired preview: ${repairedPreview}...`, 'info');
-            
-            try {
-                const parsed = JSON.parse(repaired);
-                this.addDebugEntry(`✅ Repair successful! Parsed ${parsed.events?.length || 0} events`, 'success');
-                return parsed;
-            } catch (repairError) {
-                this.addDebugEntry(`❌ Repair failed: ${repairError.message}`, 'error');
-                this.addDebugEntry(`Returning empty result for this chunk to allow other chunks to process.`, 'warning');
-                
-                // Return empty result instead of throwing - let other chunks succeed
-                return {
-                    meetInfo: null,
-                    events: []
-                };
-            }
+            // Return empty result instead of throwing - let other chunks succeed
+            return {
+                meetInfo: null,
+                events: []
+            };
         }
-    }
-
-    extractJSON(text) {
-        // Remove markdown code fences if present
-        let cleaned = text.trim();
-        
-        // Check for ```json ... ``` pattern
-        const jsonFenceMatch = cleaned.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonFenceMatch) {
-            this.addDebugEntry('Detected markdown JSON code fence, extracting...', 'info');
-            return jsonFenceMatch[1].trim();
-        }
-        
-        // Check for generic ``` ... ``` pattern
-        const genericFenceMatch = cleaned.match(/```\s*([\s\S]*?)\s*```/);
-        if (genericFenceMatch) {
-            this.addDebugEntry('Detected markdown code fence, extracting...', 'info');
-            return genericFenceMatch[1].trim();
-        }
-        
-        // No code fences, return as-is
-        return cleaned;
-    }
-
-    repairTruncatedJSON(jsonString) {
-        let repaired = jsonString.trim();
-        
-        // First, strip markdown code fences if they somehow got through
-        repaired = repaired.replace(/```json\s*/g, '').replace(/```\s*/g, '');
-        repaired = repaired.trim();
-        
-        // Remove any trailing incomplete content after last complete object
-        const lastCompleteObject = repaired.lastIndexOf('}');
-        if (lastCompleteObject > -1) {
-            repaired = repaired.substring(0, lastCompleteObject + 1);
-        }
-        
-        // Count and balance brackets
-        const openBraces = (repaired.match(/{/g) || []).length;
-        const closeBraces = (repaired.match(/}/g) || []).length;
-        const openBrackets = (repaired.match(/\[/g) || []).length;
-        const closeBrackets = (repaired.match(/\]/g) || []).length;
-        
-        // Close any unclosed strings
-        const quotes = (repaired.match(/"/g) || []).length;
-        if (quotes % 2 !== 0) {
-            repaired += '"';
-        }
-        
-        // Close brackets
-        for (let i = 0; i < openBrackets - closeBrackets; i++) {
-            repaired += ']';
-        }
-        
-        // Close braces
-        for (let i = 0; i < openBraces - closeBraces; i++) {
-            repaired += '}';
-        }
-        
-        return repaired;
     }
 
     mergeEvents(existingEvents, newEvents) {
