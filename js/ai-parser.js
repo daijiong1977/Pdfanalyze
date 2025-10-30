@@ -2,9 +2,9 @@ class DeepSeekParser {
     constructor(apiKey) {
         this.apiKey = apiKey;
         this.baseURL = 'https://api.deepseek.com/v1/chat/completions';
-        this.chunkSize = 3000;  // Characters per chunk (~750 tokens)
-        this.overlapPercent = 0.10;  // 10% overlap between chunks
-        this.maxTokens = 6000;  // Safe token limit for response
+        this.chunkSize = 2000; // Smaller chunks = fewer events per response
+        this.overlapPercent = 0.10; // 10% overlap between chunks
+        this.maxTokens = 6000; // Account limit - do not increase
         this.debugLog = [];
     }
 
@@ -307,9 +307,41 @@ REMEMBER: Output must be pure JSON only. No backticks, no additional text, no ma
             
             cleanContent = cleanContent.trim();
             
-            const parsed = JSON.parse(cleanContent);
-            this.addDebugEntry(`✅ Successfully parsed JSON with ${parsed.events?.length || 0} events`, 'success');
-            return parsed;
+            // Try parsing first
+            try {
+                const parsed = JSON.parse(cleanContent);
+                this.addDebugEntry(`✅ Successfully parsed JSON with ${parsed.events?.length || 0} events`, 'success');
+                return parsed;
+            } catch (parseError) {
+                // If parsing fails, try to repair truncated JSON
+                this.addDebugEntry(`⚠️ Initial parse failed, attempting repair...`, 'warning');
+                
+                // Check if JSON is truncated (missing closing brackets)
+                if (!cleanContent.endsWith('}')) {
+                    // Find the last complete event object
+                    const lastCompleteEvent = cleanContent.lastIndexOf('}');
+                    if (lastCompleteEvent > 0) {
+                        // Truncate to last complete event and close the arrays/objects
+                        cleanContent = cleanContent.substring(0, lastCompleteEvent + 1);
+                        
+                        // Count opening brackets to add proper closing
+                        const openBraces = (cleanContent.match(/{/g) || []).length;
+                        const closeBraces = (cleanContent.match(/}/g) || []).length;
+                        const openBrackets = (cleanContent.match(/\[/g) || []).length;
+                        const closeBrackets = (cleanContent.match(/\]/g) || []).length;
+                        
+                        // Add missing closing brackets
+                        cleanContent += ']'.repeat(Math.max(0, openBrackets - closeBrackets));
+                        cleanContent += '}'.repeat(Math.max(0, openBraces - closeBraces));
+                        
+                        this.addDebugEntry(`🔧 Repaired truncated JSON`, 'info');
+                    }
+                }
+                
+                const parsed = JSON.parse(cleanContent);
+                this.addDebugEntry(`✅ Successfully parsed repaired JSON with ${parsed.events?.length || 0} events`, 'success');
+                return parsed;
+            }
         } catch (parseError) {
             this.addDebugEntry(`❌ Parse failed: ${parseError.message}`, 'error');
             this.addDebugEntry(`Response content: ${content.substring(0, 500)}...`, 'error');
