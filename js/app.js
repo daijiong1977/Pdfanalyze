@@ -1,154 +1,198 @@
-class SwimMeetParserApp {
-constructor() {
-this.configManager = new ConfigManager();
-this.pdfLoader = new PDFTextExtractor();
-this.jsonEditor = new EventJSONEditor('json-editor');
-this.currentPDFFile = null;
+class SwimMeetApp {
+    constructor() {
+        this.configManager = new ConfigManager();
+        this.pdfLoader = new PDFLoader();
+        this.pdfAnalyzer = new PDFAnalyzer();
+        this.jsonEditor = new JSONEditor();
+        this.aiParser = null;
+        this.currentPDFText = null;
+        
+        this.initializeEventListeners();
+        this.checkAPIKey();
+    }
 
-this.initializeApp();
-}
-
-initializeApp() {
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-
-this.setupEventListeners();
-this.loadSavedConfig();
-}
-
-setupEventListeners() {
-document.getElementById('save-api-key').addEventListener('click', () => {
-this.saveApiKey();
-});
-
-document.getElementById('upload-area').addEventListener('click', () => {
-document.getElementById('pdf-file').click();
-});
-
-document.getElementById('pdf-file').addEventListener('change', (e) => {
-this.handleFileSelect(e);
-});
-
-document.getElementById('export-json').addEventListener('click', () => {
-this.exportJSON();
-});
-
-        document.getElementById('copy-json').addEventListener('click', () => {
-            this.copyToClipboard();
+    initializeEventListeners() {
+        // API Key Management
+        document.getElementById('api-key-input').addEventListener('input', (e) => {
+            this.configManager.saveAPIKey(e.target.value);
         });
 
-        document.getElementById('toggle-debug').addEventListener('click', () => {
-            this.toggleDebug();
+        // File Upload
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('pdf-input');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
         });
 
-        document.getElementById('close-analysis').addEventListener('click', () => {
-            document.getElementById('analysis-section').hidden = true;
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
         });
-    }loadSavedConfig() {
-const apiKey = this.configManager.loadApiKey();
-if (apiKey) {
-document.getElementById('api-key').value = '••••••••••••••••';
-}
-}
 
-saveApiKey() {
-const apiKey = document.getElementById('api-key').value.trim();
-if (!apiKey) {
-alert('Please enter your DeepSeek API key');
-return;
-}
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                fileInput.files = e.dataTransfer.files;
+                this.handleFileSelect(e.dataTransfer.files[0]);
+            }
+        });
 
-this.configManager.saveApiKey(apiKey);
-alert('API key saved successfully!');
-document.getElementById('api-key').value = '••••••••••••••••';
-}
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.handleFileSelect(e.target.files[0]);
+            }
+        });
 
-async handleFileSelect(event) {
-const file = event.target.files[0];
-if (!file) return;
+        // Action Buttons
+        document.getElementById('analyze-btn').addEventListener('click', () => this.analyzePDF());
+        document.getElementById('parse-btn').addEventListener('click', () => this.parsePDF());
+        document.getElementById('export-btn').addEventListener('click', () => this.exportJSON());
+        document.getElementById('copy-json-btn').addEventListener('click', () => this.copyJSON());
+        
+        // Debug Toggle
+        document.getElementById('toggle-debug-btn').addEventListener('click', () => this.toggleDebug());
+    }
 
-try {
-this.pdfLoader.validatePDFFile(file);
-this.currentPDFFile = file;
+    checkAPIKey() {
+        const apiKey = this.configManager.getAPIKey();
+        const apiKeyInput = document.getElementById('api-key-input');
+        const apiStatus = document.getElementById('api-status');
+        
+        if (apiKey) {
+            apiKeyInput.value = apiKey;
+            apiStatus.textContent = '✅ API key configured';
+            apiStatus.className = 'status-success';
+        } else {
+            apiStatus.textContent = '⚠️ Please enter your DeepSeek API key';
+            apiStatus.className = 'status-warning';
+        }
+    }
 
-document.getElementById('file-info').innerHTML = `
-✅ <strong>${file.name}</strong>
-(${(file.size / 1024 / 1024).toFixed(1)}MB)
-<br>
-<button onclick="app.analyzePDFFile()">📊 Analyze PDF</button>
-<button onclick="app.processPDF()">🚀 Parse PDF</button>
-`;
+    async handleFileSelect(file) {
+        const fileInfo = document.getElementById('file-info');
+        const actionsSection = document.getElementById('actions-section');
+        
+        try {
+            fileInfo.innerHTML = `
+                <p>📄 Selected: <strong>${file.name}</strong></p>
+                <p>Size: ${(file.size / 1024).toFixed(2)} KB</p>
+                <p class="loading">⏳ Loading PDF...</p>
+            `;
 
-} catch (error) {
-alert(error.message);
-}
-}
+            this.currentPDFText = await this.pdfLoader.extractTextFromPDF(file);
+            
+            fileInfo.innerHTML = `
+                <p>✅ <strong>${file.name}</strong> loaded successfully</p>
+                <p>Size: ${(file.size / 1024).toFixed(2)} KB</p>
+            `;
+            
+            actionsSection.hidden = false;
+            
+        } catch (error) {
+            fileInfo.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+        }
+    }
 
-async processPDF() {
-if (!this.currentPDFFile) {
-alert('Please select a PDF file first');
-return;
-}
+    async analyzePDF() {
+        if (!this.currentPDFText) {
+            alert('Please upload a PDF first');
+            return;
+        }
 
-const apiKey = this.configManager.loadApiKey();
-if (!apiKey) {
-alert('Please configure your DeepSeek API key first');
-return;
-}
+        const analysisResult = this.pdfAnalyzer.analyze(this.currentPDFText);
+        const analysisSection = document.getElementById('analysis-section');
+        const analysisDetails = document.getElementById('analysis-details');
 
-this.showLoading('Extracting text from PDF...');
+        analysisDetails.innerHTML = `
+            <h3>📊 PDF Analysis</h3>
+            <div class="analysis-grid">
+                <div class="analysis-item">
+                    <strong>Total Pages:</strong> ${analysisResult.totalPages}
+                </div>
+                <div class="analysis-item">
+                    <strong>Total Characters:</strong> ${analysisResult.totalChars.toLocaleString()}
+                </div>
+                <div class="analysis-item">
+                    <strong>Estimated Chunks:</strong> ${analysisResult.estimatedChunks}
+                </div>
+            </div>
+            
+            <h4>Pages with Events:</h4>
+            <ul>
+                ${analysisResult.pagesWithEvents.map(p => 
+                    `<li>Page ${p.pageNum}: ${p.eventCount} events detected</li>`
+                ).join('')}
+            </ul>
+            
+            <h4>Content Preview (First 500 chars):</h4>
+            <pre class="preview">${analysisResult.preview}</pre>
+        `;
 
-try {
-this.updateStatus('Reading PDF content...');
-const pdfText = await this.pdfLoader.extractTextFromPDF(this.currentPDFFile);
+        analysisSection.hidden = false;
+        analysisSection.scrollIntoView({ behavior: 'smooth' });
+    }
 
-this.updateStatus('Analyzing with AI...');
-const aiParser = new DeepSeekParser(apiKey);
-const result = await aiParser.parseMeetPDF(pdfText);
+    async parsePDF() {
+        const apiKey = this.configManager.getAPIKey();
+        if (!apiKey) {
+            alert('Please enter your DeepSeek API key first');
+            return;
+        }
 
-this.showResults(result);
+        if (!this.currentPDFText) {
+            alert('Please upload a PDF first');
+            return;
+        }
 
-} catch (error) {
-console.error('Processing error:', error);
-alert(`Error: ${error.message}`);
-} finally {
-this.hideLoading();
-}
-}
+        const parseBtn = document.getElementById('parse-btn');
+        parseBtn.disabled = true;
+        parseBtn.textContent = '⏳ Parsing...';
 
-showLoading(message) {
-const statusSection = document.getElementById('status-section');
-const statusMessage = document.getElementById('status-message');
-
-statusMessage.textContent = message;
-statusSection.hidden = false;
-document.getElementById('results-section').hidden = true;
-
-// Animate progress bar
-const progressFill = document.querySelector('.progress-fill');
-progressFill.style.width = '30%';
-}
-
-updateStatus(message) {
-document.getElementById('status-message').textContent = message;
-const progressFill = document.querySelector('.progress-fill');
-progressFill.style.width = '70%';
-}
-
-hideLoading() {
-document.getElementById('status-section').hidden = true;
-const progressFill = document.querySelector('.progress-fill');
-progressFill.style.width = '0%';
-}
+        try {
+            this.aiParser = new DeepSeekParser(apiKey);
+            const result = await this.aiParser.parseMeetPDF(this.currentPDFText);
+            
+            // Store debug log globally
+            window.parserDebugLog = result.debugLog;
+            
+            this.showResults(result);
+            
+        } catch (error) {
+            alert(`Parsing error: ${error.message}`);
+        } finally {
+            parseBtn.disabled = false;
+            parseBtn.textContent = '🚀 Parse PDF';
+        }
+    }
 
     showResults(result) {
         const resultsSection = document.getElementById('results-section');
         const eventsCount = document.getElementById('events-count');
 
+        let meetInfoHtml = '';
+        if (result.meetInfo) {
+            meetInfoHtml = `<br>📋 Meet: ${result.meetInfo.name}`;
+            if (result.meetInfo.date) {
+                meetInfoHtml += ` (${result.meetInfo.date})`;
+            }
+            if (result.meetInfo.maxEventsPerDay) {
+                meetInfoHtml += `<br>📊 Max Events Per Day: ${result.meetInfo.maxEventsPerDay}`;
+            }
+            if (result.meetInfo.maxTotalEvents) {
+                meetInfoHtml += `<br>📊 Max Total Events: ${result.meetInfo.maxTotalEvents}`;
+            }
+            if (result.meetInfo.maxSessions) {
+                meetInfoHtml += `<br>📊 Max Sessions: ${result.meetInfo.maxSessions}`;
+            }
+        }
+
         eventsCount.innerHTML = `
             ✅ Found <strong>${result.events.length}</strong> events
-            ${result.meetInfo ? `<br>📋 Meet: ${result.meetInfo.name}` : ''}
+            ${meetInfoHtml}
         `;
         
         this.jsonEditor.renderEditableTable(result.events);
@@ -163,112 +207,57 @@ progressFill.style.width = '0%';
     }
 
     toggleDebug() {
-        const debugSection = document.getElementById('debug-section');
-        const toggleBtn = document.getElementById('toggle-debug');
+        const debugPanel = document.getElementById('debug-panel');
+        debugPanel.hidden = !debugPanel.hidden;
         
-        if (debugSection.hidden) {
-            debugSection.hidden = false;
-            toggleBtn.textContent = 'Hide Debug Log';
-            debugSection.scrollIntoView({ behavior: 'smooth' });
-        } else {
-            debugSection.hidden = true;
-            toggleBtn.textContent = 'Show Debug Log';
-        }
+        const btn = document.getElementById('toggle-debug-btn');
+        btn.textContent = debugPanel.hidden ? '🔍 Show Debug Log' : '🔍 Hide Debug Log';
     }
 
     renderDebugLog() {
-        const debugLog = window.parserDebugLog || [];
-        const debugLogDiv = document.getElementById('debug-log');
+        const debugContent = document.getElementById('debug-content');
         
-        if (debugLog.length === 0) {
-            debugLogDiv.innerHTML = '<div class="debug-entry">No debug information available.</div>';
-            return;
-        }
-        
-        let html = '';
-        for (const entry of debugLog) {
-            const typeClass = entry.type === 'chunk' ? 'debug-chunk-header' :
-                             entry.type === 'error' ? 'debug-error' :
-                             entry.type === 'response' ? 'debug-response' : '';
-            
-            html += `<div class="debug-entry ${typeClass}">`;
-            html += `[${entry.timestamp}] ${this.escapeHtml(entry.message)}`;
-            html += `</div>`;
-        }
-        
-        debugLogDiv.innerHTML = html;
-    }
-
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    async analyzePDFFile() {
-        if (!this.currentPDFFile) {
-            alert('Please select a PDF file first');
+        if (!window.parserDebugLog || window.parserDebugLog.length === 0) {
+            debugContent.innerHTML = '<p>No debug information available</p>';
             return;
         }
 
-        this.showLoading('Analyzing PDF structure...');
+        const logHtml = window.parserDebugLog.map(entry => {
+            const typeClass = entry.type === 'error' ? 'log-error' : 
+                            entry.type === 'success' ? 'log-success' : 'log-info';
+            return `<div class="log-entry ${typeClass}">[${entry.timestamp}] ${entry.message}</div>`;
+        }).join('');
 
-        try {
-            const analyzer = new PDFAnalyzer();
-            const analysis = await analyzer.analyzePDF(this.currentPDFFile);
-            
-            const report = analyzer.generateReport();
-            
-            document.getElementById('analysis-report').textContent = report;
-            document.getElementById('analysis-section').hidden = false;
-            document.getElementById('analysis-section').scrollIntoView({ behavior: 'smooth' });
-            
-            console.log('PDF Analysis:', analysis);
-            console.log('Page Breakdown:', analyzer.getDetailedPageBreakdown());
-            
-        } catch (error) {
-            console.error('Analysis error:', error);
-            alert(`Analysis Error: ${error.message}`);
-        } finally {
-            this.hideLoading();
-        }
+        debugContent.innerHTML = logHtml;
     }
 
     exportJSON() {
-const jsonData = this.jsonEditor.exportJSON();
-const blob = new Blob([jsonData], { type: 'application/json' });
-const url = URL.createObjectURL(blob);
+        const events = this.jsonEditor.getEvents();
+        const json = JSON.stringify(events, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'swim-meet-events.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
 
-const a = document.createElement('a');
-a.href = url;
-a.download = 'swim-meet-events.json';
-document.body.appendChild(a);
-a.click();
-document.body.removeChild(a);
-
-URL.revokeObjectURL(url);
+    copyJSON() {
+        const events = this.jsonEditor.getEvents();
+        const json = JSON.stringify(events, null, 2);
+        navigator.clipboard.writeText(json).then(() => {
+            const btn = document.getElementById('copy-json-btn');
+            const originalText = btn.textContent;
+            btn.textContent = '✅ Copied!';
+            setTimeout(() => {
+                btn.textContent = originalText;
+            }, 2000);
+        });
+    }
 }
 
-async copyToClipboard() {
-const jsonData = this.jsonEditor.exportJSON();
-
-try {
-await navigator.clipboard.writeText(jsonData);
-alert('JSON copied to clipboard!');
-} catch (error) {
-// Fallback for older browsers
-const textArea = document.createElement('textarea');
-textArea.value = jsonData;
-document.body.appendChild(textArea);
-textArea.select();
-document.execCommand('copy');
-document.body.removeChild(textArea);
-alert('JSON copied to clipboard!');
-}
-}
-}
-
-let app;
+// Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-app = new SwimMeetParserApp();
+    new SwimMeetApp();
 });

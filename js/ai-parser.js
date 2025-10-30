@@ -193,6 +193,13 @@ CRITICAL FLORIDA SWIMMING NOTATION RULES:
 - "8&9" = Ages 8 AND 9 together
 - Sessions: Group by day/session based on PDF structure
 
+DAY AND SESSION EXTRACTION (CRITICAL):
+- ALWAYS look at the table headers for day/session information
+- Headers like "Saturday PM" or "Friday AM" apply to ALL events in that section
+- If you see a day/time header (Friday/Saturday/Sunday AM/PM), apply it to ALL events below until you see a new header
+- NEVER leave day or session fields empty - use the most recent header information
+- Format: "day" = "Friday"/"Saturday"/"Sunday", "session" = "AM"/"PM" or "Session 1"/"Session 2"
+
 SIDE-BY-SIDE FORMAT HANDLING:
 - PDFs may have columns like: "Girls Event # | Event | Boys Event #"
 - IMPORTANT: Create TWO separate events when you see this format:
