@@ -276,15 +276,19 @@ REQUIRED JSON STRUCTURE:
         // Log raw response
         this.addDebugEntry(`RAW STREAMED RESPONSE (${fullContent.length} chars):\n${fullContent}`, 'response');
 
+        // Extract JSON from markdown code fences if present
+        let jsonContent = this.extractJSON(fullContent);
+        this.addDebugEntry(`EXTRACTED CONTENT (${jsonContent.length} chars)`, 'info');
+
         try {
-            const parsed = JSON.parse(fullContent);
+            const parsed = JSON.parse(jsonContent);
             this.addDebugEntry(`Successfully parsed JSON with ${parsed.events?.length || 0} events`, 'success');
             return parsed;
         } catch (parseError) {
             this.addDebugEntry(`Parse failed, attempting repair... Error: ${parseError.message}`, 'warning');
             
             // Try to repair truncated JSON
-            const repaired = this.repairTruncatedJSON(fullContent);
+            const repaired = this.repairTruncatedJSON(jsonContent);
             this.addDebugEntry(`REPAIRED JSON:\n${repaired}`, 'response');
             
             try {
@@ -296,6 +300,28 @@ REQUIRED JSON STRUCTURE:
                 throw new Error('AI returned invalid or truncated JSON. Try a shorter PDF or check the API token limit.');
             }
         }
+    }
+
+    extractJSON(text) {
+        // Remove markdown code fences if present
+        let cleaned = text.trim();
+        
+        // Check for ```json ... ``` pattern
+        const jsonFenceMatch = cleaned.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonFenceMatch) {
+            this.addDebugEntry('Detected markdown JSON code fence, extracting...', 'info');
+            return jsonFenceMatch[1].trim();
+        }
+        
+        // Check for generic ``` ... ``` pattern
+        const genericFenceMatch = cleaned.match(/```\s*([\s\S]*?)\s*```/);
+        if (genericFenceMatch) {
+            this.addDebugEntry('Detected markdown code fence, extracting...', 'info');
+            return genericFenceMatch[1].trim();
+        }
+        
+        // No code fences, return as-is
+        return cleaned;
     }
 
     repairTruncatedJSON(jsonString) {
