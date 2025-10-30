@@ -3,179 +3,169 @@ class DeepSeekParser {
         this.apiKey = apiKey;
         this.baseURL = 'https://api.deepseek.com/v1/chat/completions';
         this.chunkSize = 2000; // Smaller chunks = fewer events per response
-        this.overlapPercent = 0.10; // 10% overlap between chunks
+        this.overlapPercent = 0; // No overlap - pages are clean
         this.maxTokens = 6000; // Account limit - do not increase
         this.debugLog = [];
     }
 
+    async parseMeetPDF(pdfText, meetName = 'Swim Meet') {
+        this.debugLog = []; // Reset debug log
+        this.addDebugEntry('=== STARTING PDF PARSE ===', 'info');
+        this.addDebugEntry(`📋 Meet: ${meetName}`, 'info');
+        
+        // Preprocess: Extract entry limit and keep only event pages
+        const { entryLimit, eventPages } = this.preprocessPDF(pdfText);
+        
+        if (!eventPages || eventPages.trim().length === 0) {
+            throw new Error('No event pages found in PDF');
+        }
+        
+        // Split event pages into size-based chunks (no overlap)
+        const chunks = this.createSizeBasedChunks(eventPages);
+        
+        this.addDebugEntry(`Processing ${chunks.length} chunks...`, 'info');
+        
+        let allEvents = [];
+        
+        for (let i = 0; i < chunks.length; i++) {
+            this.addDebugEntry(`\n--- Chunk ${i + 1}/${chunks.length} ---`, 'chunk');
+            
+            try {
+                const prompt = this.buildSwimMeetPrompt(chunks[i], entryLimit, i + 1, chunks.length);
+                const response = await this.callDeepSeekAPI(prompt);
+                
+                if (response.events && response.events.length > 0) {
+                    this.addDebugEntry(`✅ Found ${response.events.length} events in chunk ${i + 1}`, 'success');
+                    allEvents = this.mergeEvents(allEvents, response.events);
+                } else {
+                    this.addDebugEntry(`⚠️ No events found in chunk ${i + 1}`, 'warning');
+                }
+            } catch (error) {
+                this.addDebugEntry(`❌ ERROR in chunk ${i + 1}: ${error.message}`, 'error');
+            }
+            
+            // Small delay to avoid rate limiting
+            if (i < chunks.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+        
+        this.addDebugEntry(`\n=== PARSE COMPLETE: ${allEvents.length} total events ===`, 'success');
+        
+        // Expose debug log to window for UI access
+        window.parserDebugLog = this.debugLog;
+        
+        // Extract maxEventsPerDay from entry limit if available
+        let maxEventsPerDay = null;
+        if (entryLimit) {
+            const match = entryLimit.match(/(\d+)\s*events?\s*per\s*day/i);
+            if (match) {
+                maxEventsPerDay = parseInt(match[1]);
+            }
+        }
+        
+        return {
+            meetInfo: { 
+                name: meetName,
+                maxEventsPerDay: maxEventsPerDay,
+                entryLimit: entryLimit
+            },
+            events: allEvents
+        };
+    }
+
     addDebugEntry(message, type = 'info') {
         const timestamp = new Date().toLocaleTimeString();
-        const entry = { timestamp, message, type };
-        this.debugLog.push(entry);
-        console.log(`[${timestamp}] ${message}`);
-    }
-
-    getDebugLog() {
-        return this.debugLog;
-    }
-
-    async parseMeetPDF(pdfText) {
-        try {
-            this.debugLog = [];
-            this.addDebugEntry('=== STARTING PDF PARSE ===', 'info');
-            
-            // Step 1: Preprocess PDF to separate meet context from events
-            const { meetContext, eventPages } = this.preprocessPDF(pdfText);
-            
-            if (eventPages.length === 0) {
-                throw new Error('No event pages found in PDF');
-            }
-            
-            // Step 2: Create size-based chunks from event pages
-            const eventText = eventPages.join('\n\n');
-            const chunks = this.createSizeBasedChunks(eventText);
-            
-            this.addDebugEntry(`Processing ${chunks.length} size-based chunks...`, 'info');
-            
-            // Step 3: Parse each chunk with meet context
-            let allEvents = [];
-            let meetInfo = null;
-            
-            for (let i = 0; i < chunks.length; i++) {
-                try {
-                    const prompt = this.buildSwimMeetPrompt(chunks[i], meetContext, i + 1, chunks.length);
-                    const result = await this.callDeepSeekAPI(prompt);
-                    
-                    if (result.meetInfo && !meetInfo) {
-                        meetInfo = result.meetInfo;
-                        this.addDebugEntry(`📋 Captured meet info: ${meetInfo.name || 'Unknown'}`, 'info');
-                        if (meetInfo.maxEventsPerDay) {
-                            this.addDebugEntry(`   Max events per day: ${meetInfo.maxEventsPerDay}`, 'info');
-                        }
-                        if (meetInfo.maxTotalEvents) {
-                            this.addDebugEntry(`   Max total events: ${meetInfo.maxTotalEvents}`, 'info');
-                        }
-                        if (meetInfo.maxSessions) {
-                            this.addDebugEntry(`   Max sessions: ${meetInfo.maxSessions}`, 'info');
-                        }
-                    }
-                    
-                    if (result.events && result.events.length > 0) {
-                        allEvents = this.mergeEvents(allEvents, result.events);
-                    }
-                } catch (error) {
-                    this.addDebugEntry(`ERROR in chunk ${i + 1}: ${error.message}`, 'error');
-                }
-            }
-            
-            this.addDebugEntry(`=== PARSE COMPLETE: ${allEvents.length} total events ===`, 'success');
-            
-            return {
-                meetInfo: meetInfo || { name: 'Unknown Meet', date: null },
-                events: allEvents,
-                debugLog: this.debugLog
-            };
-            
-        } catch (error) {
-            this.addDebugEntry(`FATAL ERROR: ${error.message}`, 'error');
-            throw error;
-        }
+        this.debugLog.push({ timestamp, message, type });
     }
 
     preprocessPDF(pdfText) {
-        this.addDebugEntry('Preprocessing PDF to identify page types...', 'info');
+        // Split by pages
+        const pages = pdfText.split(/PAGE \d+:/);
         
-        // Split by page markers
-        const pages = pdfText.split(/PAGE \d+:/).filter(p => p.trim().length > 0);
-        
-        const eventPages = [];
-        const infoPages = [];
+        let entryLimit = '';
+        let eventPages = [];
         
         for (let i = 0; i < pages.length; i++) {
-            const page = pages[i];
-            const pageNum = i + 1;
+            let page = pages[i].trim();
+            if (!page) continue;
             
-            // Check if this page has events
-            const hasEvents = /EVENT\s+#/i.test(page) || /^\s*\d+\s+.*?\d+\s*&/m.test(page);
+            // Check if page has event schedule content
+            const hasEvents = /EVENT\s+#/i.test(page) || 
+                            /^\s*\d+\s+.*?\d+\s*&/m.test(page);
             
-            // Check if this page has meet info (session times, rules, etc.)
-            const hasMeetInfo = /session|Friday|Saturday|Sunday|swimmers?\s+may\s+enter|time\s+standard/i.test(page);
-            
-            // Skip entry forms
-            const isEntryForm = /entry\s+form/i.test(page) && /team\s+name/i.test(page);
-            
-            if (isEntryForm) {
-                this.addDebugEntry(`Skipping entry form on page ${pageNum}`, 'info');
-                continue;
+            // Extract entry limit from any page (usually first page)
+            if (!entryLimit && /Entry Limit/i.test(page)) {
+                const limitText = this.extractMeetContext(page);
+                if (limitText) {
+                    entryLimit = limitText;
+                }
             }
             
+            // Only keep pages with events - discard all other pages
             if (hasEvents) {
-                this.addDebugEntry(`Found event schedule on page ${pageNum}`, 'info');
-                eventPages.push(page);
-            } else if (hasMeetInfo && i < 3) {
-                // Only consider first 3 pages for meet context
-                this.addDebugEntry(`Found meet info on page ${pageNum}`, 'info');
-                infoPages.push(page);
+                this.addDebugEntry(`✅ Page ${i + 1}: Has events (keeping)`, 'info');
+                const cleaned = this.removeHeadersFooters(page);
+                eventPages.push(cleaned);
+            } else {
+                this.addDebugEntry(`❌ Page ${i + 1}: No events (discarding)`, 'info');
             }
         }
         
-        // Extract meet context from info pages
-        let meetContext = '';
-        if (infoPages.length > 0) {
-            this.addDebugEntry(`Extracting meet context from pages 1-${infoPages.length}`, 'info');
-            meetContext = this.extractMeetContext(infoPages.join('\n\n'));
+        this.addDebugEntry(`📊 Kept ${eventPages.length} event pages from ${pages.length} total pages`, 'info');
+        if (entryLimit) {
+            this.addDebugEntry(`📋 Entry Limit: ${entryLimit}`, 'info');
         }
         
-        return { meetContext, eventPages };
+        return {
+            entryLimit: entryLimit,
+            eventPages: eventPages.join('\n\n')
+        };
     }
 
-    extractMeetContext(infoText) {
-        const context = [];
-        
-        // Extract session information
-        const sessionMatch = infoText.match(/session\s+\d+[^\n]{0,100}/gi);
-        if (sessionMatch) {
-            context.push('SESSIONS: ' + sessionMatch.join('; '));
+    extractMeetContext(pageText) {
+        // Find "Entry Limit:" or "Entry Limit" and extract the sentence
+        const entryLimitMatch = pageText.match(/Entry Limit[:\s]+([^\n\.]+)/i);
+        if (entryLimitMatch) {
+            const entryLimit = entryLimitMatch[1].trim();
+            return entryLimit;
         }
         
-        // Extract swimmer limits
-        const limitsMatch = infoText.match(/swimmers?\s+may\s+enter[^\n]{0,150}/gi);
-        if (limitsMatch) {
-            context.push('LIMITS: ' + limitsMatch.join('; '));
+        return '';
+    }
+
+    removeHeadersFooters(pageText) {
+        const lines = pageText.split('\n');
+        const cleaned = [];
+        
+        for (const line of lines) {
+            const lower = line.toLowerCase().trim();
+            
+            // Skip common headers/footers
+            if (lower.includes('page') && /page\s*\d+/i.test(line)) continue;
+            if (lower.includes('powered by') || lower.includes('hy-tek')) continue;
+            if (lower.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/)) continue;
+            
+            cleaned.push(line);
         }
         
-        // Extract time standards
-        const standardsMatch = infoText.match(/time\s+standard[^\n]{0,100}/gi);
-        if (standardsMatch) {
-            context.push('STANDARDS: ' + standardsMatch.join('; '));
-        }
-        
-        return context.join('\n');
+        return cleaned.join('\n');
     }
 
     createSizeBasedChunks(pdfText) {
         const chunks = [];
-        const overlapSize = Math.floor(this.chunkSize * this.overlapPercent);
-        const stepSize = this.chunkSize - overlapSize;
-        
         let position = 0;
-        let chunkNum = 1;
         
         while (position < pdfText.length) {
-            // Calculate end position
             const chunkEnd = Math.min(position + this.chunkSize, pdfText.length);
-            
-            // Extract chunk
             const chunk = pdfText.substring(position, chunkEnd);
             
-            // Add chunk if it has content
             if (chunk.trim().length > 0) {
                 chunks.push(chunk);
-                chunkNum++;
             }
             
-            // Move forward by stepSize to create 10% overlap
-            position += stepSize;
+            // Move forward by full chunkSize (no overlap)
+            position = chunkEnd;
             
             // Break if we've reached the end
             if (chunkEnd >= pdfText.length) {
@@ -183,7 +173,7 @@ class DeepSeekParser {
             }
         }
         
-        this.addDebugEntry(`Created ${chunks.length} chunks from ${pdfText.length} characters (chunk size: ${this.chunkSize}, overlap: ${overlapSize} chars)`, 'info');
+        this.addDebugEntry(`📦 Created ${chunks.length} chunks (${this.chunkSize} chars each, no overlap)`, 'info');
         return chunks;
     }
 
@@ -222,12 +212,9 @@ SIDE-BY-SIDE FORMAT HANDLING:
   * Event 39: 10 & Under 100 IM, Gender F
   * Event 40: 10 & Under 100 IM, Gender M
 
-MEET CONTEXT (Rules and Session Info):
-${meetContext || 'No additional context available'}
+ENTRY LIMIT: ${meetContext || 'Not specified'}
 
-CHUNKING NOTE: You are processing chunk ${chunkNum} of ${totalChunks}. Extract ALL events you see, even if they seem partial or incomplete. Duplicate event numbers across chunks will be merged later.
-
-CRITICAL: If this chunk has NO complete events (just headers, partial data, or page breaks), return {"meetInfo": null, "events": []}. Do not attempt to create events from insufficient data.
+CHUNKING NOTE: You are processing chunk ${chunkNum} of ${totalChunks}. Extract ALL events you see. Duplicate event numbers across chunks will be merged later.
 
 OUTPUT FORMAT: Return ONLY valid JSON, no markdown fences, no code blocks, no explanations. The response must start with { and end with }. Must be directly parseable by JSON.parse().`
                 },
@@ -240,13 +227,6 @@ ${eventText}
 
 REQUIRED JSON FORMAT - Return exactly this structure:
 {
-  "meetInfo": {
-    "name": "Meet Name",
-    "date": "2025-11-15",
-    "maxEventsPerDay": "5 per day",
-    "maxTotalEvents": "10 total",
-    "maxSessions": 3
-  },
   "events": [
     {
       "eventNumber": 1,
@@ -301,59 +281,42 @@ REMEMBER: Output must be pure JSON only. No backticks, no additional text, no ma
 
         if (!response.ok) {
             const errorText = await response.text();
-            this.addDebugEntry(`API Error: ${response.status} - ${errorText}`, 'error');
-            throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
+            throw new Error(`DeepSeek API error: ${response.status}`);
         }
 
         const result = await response.json();
         const content = result.choices[0]?.message?.content;
         
         if (!content) {
-            this.addDebugEntry(`No content in API response`, 'error');
             throw new Error('No content in API response');
         }
 
-        // Log response size
-        this.addDebugEntry(`Received response: ${content.length} chars`, 'info');
-
         try {
-            // With response_format json_object, DeepSeek should return clean JSON
-            // But sometimes it still wraps in markdown fences - strip them
+            // Strip markdown fences if present
             let cleanContent = content.trim();
-            
-            // Remove markdown code fences if present
             if (cleanContent.startsWith('```json')) {
                 cleanContent = cleanContent.replace(/^```json\s*/i, '').replace(/```\s*$/, '');
             } else if (cleanContent.startsWith('```')) {
                 cleanContent = cleanContent.replace(/^```\s*/, '').replace(/```\s*$/, '');
             }
-            
             cleanContent = cleanContent.trim();
             
-            // Try parsing first
+            // Try parsing
             try {
                 const parsed = JSON.parse(cleanContent);
-                this.addDebugEntry(`✅ Successfully parsed JSON with ${parsed.events?.length || 0} events`, 'success');
                 return parsed;
             } catch (parseError) {
-                // If parsing fails, try to repair truncated JSON
-                this.addDebugEntry(`⚠️ Initial parse failed, attempting repair...`, 'warning');
-                
-                // Check if JSON is truncated (missing closing brackets)
+                // Attempt repair for truncated JSON
                 if (!cleanContent.endsWith('}')) {
-                    // Find the last complete event object
                     const lastCompleteEvent = cleanContent.lastIndexOf('}');
                     if (lastCompleteEvent > 0) {
-                        // Truncate to last complete event and close the arrays/objects
                         cleanContent = cleanContent.substring(0, lastCompleteEvent + 1);
                         
-                        // Count opening brackets to add proper closing
                         const openBraces = (cleanContent.match(/{/g) || []).length;
                         const closeBraces = (cleanContent.match(/}/g) || []).length;
                         const openBrackets = (cleanContent.match(/\[/g) || []).length;
                         const closeBrackets = (cleanContent.match(/\]/g) || []).length;
                         
-                        // Add missing closing brackets
                         cleanContent += ']'.repeat(Math.max(0, openBrackets - closeBrackets));
                         cleanContent += '}'.repeat(Math.max(0, openBraces - closeBraces));
                         
@@ -362,38 +325,27 @@ REMEMBER: Output must be pure JSON only. No backticks, no additional text, no ma
                 }
                 
                 const parsed = JSON.parse(cleanContent);
-                this.addDebugEntry(`✅ Successfully parsed repaired JSON with ${parsed.events?.length || 0} events`, 'success');
                 return parsed;
             }
         } catch (parseError) {
             this.addDebugEntry(`❌ Parse failed: ${parseError.message}`, 'error');
-            this.addDebugEntry(`Response content: ${content.substring(0, 500)}...`, 'error');
-            
-            // Return empty result instead of throwing - let other chunks succeed
-            return {
-                meetInfo: null,
-                events: []
-            };
+            return { events: [] };
         }
     }
 
     mergeEvents(existingEvents, newEvents) {
-        // Create a map of existing events by event number
         const eventMap = new Map();
         
         for (const event of existingEvents) {
             eventMap.set(event.eventNumber, event);
         }
         
-        // Add or update with new events
         for (const newEvent of newEvents) {
             const existing = eventMap.get(newEvent.eventNumber);
             
             if (!existing) {
-                // New event - add it
                 eventMap.set(newEvent.eventNumber, newEvent);
             } else {
-                // Event exists - keep the version with more complete data
                 const existingComplete = this.countCompleteFields(existing);
                 const newComplete = this.countCompleteFields(newEvent);
                 
@@ -403,7 +355,6 @@ REMEMBER: Output must be pure JSON only. No backticks, no additional text, no ma
             }
         }
         
-        // Convert map back to sorted array
         return Array.from(eventMap.values()).sort((a, b) => a.eventNumber - b.eventNumber);
     }
 
@@ -418,5 +369,4 @@ REMEMBER: Output must be pure JSON only. No backticks, no additional text, no ma
     }
 }
 
-// Make available globally
 window.DeepSeekParser = DeepSeekParser;

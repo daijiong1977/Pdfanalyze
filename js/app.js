@@ -105,9 +105,12 @@ class SwimMeetParserApp {
             this.updateStatus('Reading PDF content...');
             const pdfText = await this.pdfLoader.extractTextFromPDF(this.currentPDFFile);
 
+            // Extract meet name from PDF filename (remove .pdf extension)
+            const meetName = this.currentPDFFile.name.replace(/\.pdf$/i, '');
+
             this.updateStatus('Analyzing with AI...');
             const aiParser = new DeepSeekParser(apiKey);
-            const result = await aiParser.parseMeetPDF(pdfText);
+            const result = await aiParser.parseMeetPDF(pdfText, meetName);
 
             this.showResults(result);
 
@@ -151,17 +154,11 @@ class SwimMeetParserApp {
         let meetInfoHtml = '';
         if (result.meetInfo) {
             meetInfoHtml = `<br>📋 Meet: ${result.meetInfo.name}`;
-            if (result.meetInfo.date) {
-                meetInfoHtml += ` (${result.meetInfo.date})`;
-            }
             if (result.meetInfo.maxEventsPerDay) {
                 meetInfoHtml += `<br>📊 Max Events Per Day: ${result.meetInfo.maxEventsPerDay}`;
             }
-            if (result.meetInfo.maxTotalEvents) {
-                meetInfoHtml += `<br>📊 Max Total Events: ${result.meetInfo.maxTotalEvents}`;
-            }
-            if (result.meetInfo.maxSessions) {
-                meetInfoHtml += `<br>📊 Max Sessions: ${result.meetInfo.maxSessions}`;
+            if (result.meetInfo.entryLimit) {
+                meetInfoHtml += `<br>📝 Entry Limit: ${result.meetInfo.entryLimit}`;
             }
         }
 
