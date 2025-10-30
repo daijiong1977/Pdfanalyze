@@ -119,8 +119,16 @@ class DeepSeekParser {
             if (!page) continue;
             
             // Check if page has event schedule content
-            const hasEvents = /EVENT\s+#/i.test(page) || 
-                            /^\s*\d+\s+.*?\d+\s*&/m.test(page);
+            // Look for "EVENT #" header OR event number patterns
+            // Must exclude lines like "Session 1" or "Session 2" from being detected as events
+            const hasEventHeader = /EVENT\s+#/i.test(page);
+            const hasEventNumbers = /^\s*\d{1,4}\s+(?!session\s)/im.test(page) && 
+                                   (/\d+\s*&\s*Under/i.test(page) || 
+                                    /\d+\s*-\s*\d+/i.test(page) ||
+                                    /Open/i.test(page) ||
+                                    /Free|Back|Breast|Fly|IM|Medley|Relay/i.test(page));
+            
+            const hasEvents = hasEventHeader || hasEventNumbers;
             
             // Extract entry limit from any page (usually first page)
             if (!entryLimit && /Entry Limit/i.test(page)) {
@@ -214,6 +222,15 @@ class DeepSeekParser {
                     role: "system",
                     content: `You are a swim meet expert that extracts structured event data from PDF meet sheets.
 
+CRITICAL EVENT NUMBER RULE - READ THIS FIRST:
+- **NEVER AUTO-NUMBER OR RENUMBER EVENTS**
+- **USE THE EXACT EVENT NUMBER FROM THE PDF** - this is the most important field
+- If the PDF shows "Event 15", you MUST use eventNumber: 15
+- If the PDF shows "39 | 10 & Under 100 IM | 40", create TWO events with numbers 39 and 40
+- **DO NOT start numbering from 1** - use whatever numbers are in the PDF
+- Event numbers may skip (1, 2, 5, 7 is valid if that's what the PDF shows)
+- **CRITICAL**: Session info like "Session 1" or "Session 2" are NOT events - ignore these lines completely
+
 CRITICAL FLORIDA SWIMMING NOTATION RULES:
 - Gender: "7" or "Girls" or "Women" = "F"
 - Gender: "8" or "Boys" or "Men" = "M"
@@ -241,6 +258,11 @@ SIDE-BY-SIDE FORMAT HANDLING:
   * Event 39: 10 & Under 100 IM, Gender F
   * Event 40: 10 & Under 100 IM, Gender M
 
+MIXED GENDER EVENTS:
+- Some events appear under "BOYS" or "GIRLS" headers but are actually mixed
+- If an event has both male and female participants, set eventGender to "Mixed"
+- Look for context clues like "8 Boys" or "7 Girls" in the same event listing
+
 ENTRY LIMIT: ${meetContext || 'Not specified'}
 
 CHUNKING NOTE: You are processing chunk ${chunkNum} of ${totalChunks}. Extract ALL events you see. Duplicate event numbers across chunks will be merged later.
@@ -254,9 +276,8 @@ OUTPUT FORMAT: Return ONLY valid JSON, no markdown fences, no code blocks, no ex
 PDF TEXT (Chunk ${chunkNum}/${totalChunks}):
 ${eventText}
 
-REQUIRED JSON FORMAT - Return exactly this structure:
+REQUIRED JSON FORMAT - Return exactly this structure (USE EXACT EVENT NUMBERS FROM PDF):
 {
-  "events": [
   "events": [
     {
       "eventNumber": 1,
@@ -282,6 +303,12 @@ REQUIRED JSON FORMAT - Return exactly this structure:
     }
   ]
 }
+
+CRITICAL REMINDER FOR EVENT NUMBERS:
+- **USE THE EXACT EVENT NUMBER FROM THE PDF** - If PDF says "Event 15", use 15, not 1
+- **DO NOT auto-number starting from 1** - preserve the original event numbers
+- Numbers may skip (15, 16, 19, 20 is valid if that's what PDF shows)
+- Session lines like "Session 1" are NOT events - skip them entirely
 
 CRITICAL REMINDER FOR DAY/SESSION:
 - Look for headers like "Saturday PM", "Friday AM", "Session 2" at the TOP of event sections
