@@ -335,26 +335,30 @@ REQUIRED JSON STRUCTURE:
 
         // Extract JSON from markdown code fences if present
         let jsonContent = this.extractJSON(fullContent);
-        this.addDebugEntry(`EXTRACTED CONTENT (${jsonContent.length} chars)`, 'info');
+        
+        // Debug: show first 200 chars of extracted content
+        const preview = jsonContent.substring(0, 200);
+        this.addDebugEntry(`Extracted JSON preview: ${preview}...`, 'info');
 
         try {
             const parsed = JSON.parse(jsonContent);
-            this.addDebugEntry(`Successfully parsed JSON with ${parsed.events?.length || 0} events`, 'success');
+            this.addDebugEntry(`✅ Successfully parsed JSON with ${parsed.events?.length || 0} events`, 'success');
             return parsed;
         } catch (parseError) {
             this.addDebugEntry(`Parse failed, attempting repair... Error: ${parseError.message}`, 'warning');
             
             // Try to repair truncated JSON
             const repaired = this.repairTruncatedJSON(jsonContent);
-            this.addDebugEntry(`REPAIRED JSON:\n${repaired}`, 'response');
+            const repairedPreview = repaired.substring(0, 200);
+            this.addDebugEntry(`Repaired preview: ${repairedPreview}...`, 'info');
             
             try {
                 const parsed = JSON.parse(repaired);
-                this.addDebugEntry(`Repair successful! Parsed ${parsed.events?.length || 0} events`, 'success');
+                this.addDebugEntry(`✅ Repair successful! Parsed ${parsed.events?.length || 0} events`, 'success');
                 return parsed;
             } catch (repairError) {
-                this.addDebugEntry(`Repair failed: ${repairError.message}`, 'error');
-                this.addDebugEntry(`Final JSON attempt failed. Returning empty result for this chunk.`, 'warning');
+                this.addDebugEntry(`❌ Repair failed: ${repairError.message}`, 'error');
+                this.addDebugEntry(`Returning empty result for this chunk to allow other chunks to process.`, 'warning');
                 
                 // Return empty result instead of throwing - let other chunks succeed
                 return {
@@ -389,6 +393,10 @@ REQUIRED JSON STRUCTURE:
 
     repairTruncatedJSON(jsonString) {
         let repaired = jsonString.trim();
+        
+        // First, strip markdown code fences if they somehow got through
+        repaired = repaired.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        repaired = repaired.trim();
         
         // Remove any trailing incomplete content after last complete object
         const lastCompleteObject = repaired.lastIndexOf('}');
