@@ -48,6 +48,16 @@ class DeepSeekParser {
                     
                     if (result.meetInfo && !meetInfo) {
                         meetInfo = result.meetInfo;
+                        this.addDebugEntry(`📋 Captured meet info: ${meetInfo.name || 'Unknown'}`, 'info');
+                        if (meetInfo.maxEventsPerDay) {
+                            this.addDebugEntry(`   Max events per day: ${meetInfo.maxEventsPerDay}`, 'info');
+                        }
+                        if (meetInfo.maxTotalEvents) {
+                            this.addDebugEntry(`   Max total events: ${meetInfo.maxTotalEvents}`, 'info');
+                        }
+                        if (meetInfo.maxSessions) {
+                            this.addDebugEntry(`   Max sessions: ${meetInfo.maxSessions}`, 'info');
+                        }
                     }
                     
                     if (result.events && result.events.length > 0) {
@@ -195,10 +205,11 @@ CRITICAL FLORIDA SWIMMING NOTATION RULES:
 
 DAY AND SESSION EXTRACTION (CRITICAL):
 - ALWAYS look at the table headers for day/session information
-- Headers like "Saturday PM" or "Friday AM" apply to ALL events in that section
+- Headers like "Saturday PM" or "Friday AM" or "Session 2" apply to ALL events in that section
 - If you see a day/time header (Friday/Saturday/Sunday AM/PM), apply it to ALL events below until you see a new header
 - NEVER leave day or session fields empty - use the most recent header information
-- Format: "day" = "Friday"/"Saturday"/"Sunday", "session" = "AM"/"PM"
+- Format: "day" = "Friday"/"Saturday"/"Sunday", "session" = "AM"/"PM" OR "Session 1"/"Session 2"/"Session 3"
+- Accept EITHER format: "AM/PM" or "Session X" - use whatever is in the PDF
 - If no session is specified but you have a day, use the day and set session to "AM" by default
 
 SIDE-BY-SIDE FORMAT HANDLING:
@@ -247,15 +258,27 @@ REQUIRED JSON FORMAT - Return exactly this structure:
       "timeStandardA": null,
       "timeStandardB": null,
       "notes": "Girls event"
+    },
+    {
+      "eventNumber": 2,
+      "day": "Saturday",
+      "session": "Session 2",
+      "description": "10 & Under 50 Free",
+      "ageGroup": "10 & Under",
+      "eventGender": "M",
+      "timeStandardA": null,
+      "timeStandardB": null,
+      "notes": "Boys event"
     }
   ]
 }
 
 CRITICAL REMINDER FOR DAY/SESSION:
-- Look for headers like "Saturday PM", "Friday AM", "Sunday" at the TOP of event sections
+- Look for headers like "Saturday PM", "Friday AM", "Session 2" at the TOP of event sections
+- Session format can be EITHER "AM"/"PM" OR "Session 1"/"Session 2"/"Session 3" - use whatever the PDF shows
 - If you see "Saturday PM" above a group of events, ALL those events get: "day": "Saturday", "session": "PM"
+- If you see "Session 2" above events, those events get: "session": "Session 2"
 - NEVER leave "day" or "session" as null or empty
-- Example: If text shows "Saturday PM" then Event #39 below it, that event MUST have "day": "Saturday" and "session": "PM"
 
 REMEMBER: Output must be pure JSON only. No backticks, no additional text, no markdown formatting, no code blocks. Just the raw JSON object starting with { and ending with }.`
                 }
