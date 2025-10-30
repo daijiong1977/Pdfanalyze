@@ -41,6 +41,10 @@ this.exportJSON();
         document.getElementById('toggle-debug').addEventListener('click', () => {
             this.toggleDebug();
         });
+
+        document.getElementById('close-analysis').addEventListener('click', () => {
+            document.getElementById('analysis-section').hidden = true;
+        });
     }loadSavedConfig() {
 const apiKey = this.configManager.loadApiKey();
 if (apiKey) {
@@ -71,7 +75,9 @@ this.currentPDFFile = file;
 document.getElementById('file-info').innerHTML = `
 ✅ <strong>${file.name}</strong>
 (${(file.size / 1024 / 1024).toFixed(1)}MB)
-<br><button onclick="app.processPDF()">Parse PDF</button>
+<br>
+<button onclick="app.analyzePDFFile()">📊 Analyze PDF</button>
+<button onclick="app.processPDF()">🚀 Parse PDF</button>
 `;
 
 } catch (error) {
@@ -197,7 +203,38 @@ progressFill.style.width = '0%';
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
-    }exportJSON() {
+    }
+
+    async analyzePDFFile() {
+        if (!this.currentPDFFile) {
+            alert('Please select a PDF file first');
+            return;
+        }
+
+        this.showLoading('Analyzing PDF structure...');
+
+        try {
+            const analyzer = new PDFAnalyzer();
+            const analysis = await analyzer.analyzePDF(this.currentPDFFile);
+            
+            const report = analyzer.generateReport();
+            
+            document.getElementById('analysis-report').textContent = report;
+            document.getElementById('analysis-section').hidden = false;
+            document.getElementById('analysis-section').scrollIntoView({ behavior: 'smooth' });
+            
+            console.log('PDF Analysis:', analysis);
+            console.log('Page Breakdown:', analyzer.getDetailedPageBreakdown());
+            
+        } catch (error) {
+            console.error('Analysis error:', error);
+            alert(`Analysis Error: ${error.message}`);
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    exportJSON() {
 const jsonData = this.jsonEditor.exportJSON();
 const blob = new Blob([jsonData], { type: 'application/json' });
 const url = URL.createObjectURL(blob);

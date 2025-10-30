@@ -240,3 +240,21 @@ margin-top: 0.5rem;
 color: #f48771;
 font-weight: bold;
 }
+
+#analysis-report {
+background: #f8f9fa;
+padding: 1.5rem;
+border-radius: 6px;
+border-left: 4px solid var(--primary-color);
+font-family: 'Courier New', monospace;
+font-size: 0.9rem;
+line-height: 1.6;
+white-space: pre-wrap;
+overflow-x: auto;
+max-height: 600px;
+overflow-y: auto;
+}
+
+#file-info button {
+margin: 0.5rem 0.5rem 0 0;
+}
