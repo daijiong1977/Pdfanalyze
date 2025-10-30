@@ -12,11 +12,11 @@ class DeepSeekParser {
         this.debugLog = []; // Reset debug log
         this.addDebugEntry('=== STARTING PDF PARSE ===', 'info');
         
-        // Preprocess: Remove non-event pages and clean up
-        const cleanedText = this.preprocessPDF(pdfText);
+        // Preprocess: Extract meet info and event pages separately
+        const { meetContext, eventPages } = this.preprocessPDF(pdfText);
         
-        // Split into size-based chunks with 10% overlap
-        const chunks = this.createSizeBasedChunks(cleanedText);
+        // Split event pages into size-based chunks with 10% overlap
+        const chunks = this.createSizeBasedChunks(eventPages);
         
         this.addDebugEntry(`Processing ${chunks.length} size-based chunks (${this.chunkSize} chars each with ${this.overlapPercent * 100}% overlap)...`, 'info');
         console.log(`Processing ${chunks.length} size-based chunks...`);
@@ -29,7 +29,7 @@ class DeepSeekParser {
             console.log(`Parsing chunk ${i + 1}/${chunks.length}...`);
             
             try {
-                const prompt = this.buildSwimMeetPrompt(chunks[i], i + 1, chunks.length);
+                const prompt = this.buildSwimMeetPrompt(chunks[i], meetContext, i + 1, chunks.length);
                 const response = await this.callDeepSeekAPIStream(prompt);
                 
                 if (!meetInfo && response.meetInfo) {
@@ -73,61 +73,97 @@ class DeepSeekParser {
         // Split by pages
         const pages = pdfText.split(/PAGE \d+:/);
         
-        let cleanedPages = [];
+        let meetContext = [];
+        let eventPages = [];
         
         for (let i = 0; i < pages.length; i++) {
             let page = pages[i].trim();
             if (!page) continue;
             
-            // Check if page has event content (EVENT # pattern or event numbers)
-            const hasEvents = /EVENT\s+#/i.test(page) || 
-                            /^\s*\d+\s+.*?\d+\s*&/m.test(page) ||
-                            /event\s+\d+/i.test(page);
-            
-            if (!hasEvents) {
-                this.addDebugEntry(`Skipping page ${i + 1} (no events detected)`, 'info');
-                continue;
-            }
-            
-            // Skip pages that look like cover/non-event pages
             const lowerPage = page.toLowerCase();
-            const skipKeywords = [
-                'entry form',
-                'master entry form',
-                'team entry',
-                'welcome',
-                'thank you',
-                'officials',
-                'directions',
-                'facility rules',
-                'acknowledgments',
-                'sponsors',
-                'sanction',
-                'location'
-            ];
             
-            // Check if page is mostly non-event content
-            let skipCount = 0;
-            for (const keyword of skipKeywords) {
-                if (lowerPage.includes(keyword)) {
-                    skipCount++;
-                }
-            }
+            // Check if page has event schedule content
+            const hasEvents = /EVENT\s+#/i.test(page) || 
+                            /^\s*\d+\s+.*?\d+\s*&/m.test(page);
             
-            // Skip if page has multiple skip keywords
-            if (skipCount >= 2) {
-                this.addDebugEntry(`Skipping page ${i + 1} (non-event content: ${skipCount} skip keywords)`, 'info');
+            // Check if page has meet rules/info content
+            const hasMeetInfo = /session/i.test(page) ||
+                              /friday|saturday|sunday/i.test(page) ||
+                              /max.*event/i.test(page) ||
+                              /swimmer.*may.*enter/i.test(page) ||
+                              /time standard/i.test(page) ||
+                              /warm.*up/i.test(page) ||
+                              /awards/i.test(page);
+            
+            // Skip only pure entry form pages
+            const isEntryForm = /entry form/i.test(page) && 
+                              /team name/i.test(page) &&
+                              !hasMeetInfo;
+            
+            if (isEntryForm) {
+                this.addDebugEntry(`Skipping page ${i + 1} (entry form)`, 'info');
                 continue;
             }
             
-            // Remove common headers/footers
-            page = this.removeHeadersFooters(page);
+            // Extract meet context from info pages
+            if (hasMeetInfo && !hasEvents) {
+                this.addDebugEntry(`Extracting meet context from page ${i + 1}`, 'info');
+                meetContext.push(this.extractMeetContext(page));
+                continue;
+            }
             
-            cleanedPages.push(`PAGE ${i + 1}:\n${page}`);
+            // Keep event pages
+            if (hasEvents) {
+                this.addDebugEntry(`Found event schedule on page ${i + 1}`, 'info');
+                const cleaned = this.removeHeadersFooters(page);
+                eventPages.push(`PAGE ${i + 1}:\n${cleaned}`);
+            }
         }
         
-        this.addDebugEntry(`Cleaned PDF: ${cleanedPages.length} pages kept from ${pages.length} total`, 'info');
-        return cleanedPages.join('\n\n');
+        const contextSummary = meetContext.join('\n\n');
+        this.addDebugEntry(`Meet Context: ${contextSummary.length} chars`, 'info');
+        this.addDebugEntry(`Event Pages: ${eventPages.length} pages kept from ${pages.length} total`, 'info');
+        
+        return {
+            meetContext: contextSummary,
+            eventPages: eventPages.join('\n\n')
+        };
+    }
+
+    extractMeetContext(pageText) {
+        const lines = pageText.split('\n');
+        let context = [];
+        
+        for (let line of lines) {
+            const lower = line.toLowerCase().trim();
+            
+            // Extract session timing
+            if (/friday|saturday|sunday/.test(lower) && /\d{1,2}:\d{2}/.test(line)) {
+                context.push(line.trim());
+            }
+            
+            // Extract swimmer limits
+            if (/swimmer.*may.*enter/i.test(lower) || /max.*event/i.test(lower)) {
+                context.push(line.trim());
+            }
+            
+            // Extract time standards
+            if (/time standard/i.test(lower) && /^\d+:/.test(line)) {
+                context.push(line.trim());
+            }
+            
+            // Extract session info
+            if (/session \d+/i.test(lower)) {
+                context.push(line.trim());
+            }
+            
+            // Extract age group rules
+            if (/age group/i.test(lower) && /\d+/.test(line)) {
+                context.push(line.trim());
+            }
+        }
+        
+        return context.join('\n');
     }
 
     removeHeadersFooters(pageText) {
@@ -179,7 +215,7 @@ class DeepSeekParser {
         return chunks;
     }
 
-    buildSwimMeetPrompt(pdfText, chunkNum, totalChunks) {
+    buildSwimMeetPrompt(eventText, meetContext, chunkNum, totalChunks) {
         return {
             model: "deepseek-chat",
             messages: [
@@ -195,9 +231,12 @@ CRITICAL FLORIDA SWIMMING NOTATION RULES:
 - "8&9" = Ages 8 AND 9 together
 - Sessions: Group by day/session based on PDF structure
 
+MEET CONTEXT (Rules and Session Info):
+${meetContext || 'No additional context available'}
+
 CHUNKING NOTE: You are processing chunk ${chunkNum} of ${totalChunks}. Extract ALL events you see, even if they seem partial. Duplicate event numbers across chunks will be merged.
 
-IMPORTANT: If you find NO events in this chunk (e.g., it contains only meet info, rules, or entry forms), return valid JSON with an empty events array.
+IMPORTANT: Use the meet context above to determine session days (Friday/Saturday/Sunday) and swimmer limits. If you find NO events in this chunk, return valid JSON with an empty events array.
 
 OUTPUT FORMAT: Return ONLY valid JSON, no markdown, no explanations. Must be parseable by JSON.parse().`
                 },
@@ -206,7 +245,7 @@ OUTPUT FORMAT: Return ONLY valid JSON, no markdown, no explanations. Must be par
                     content: `Parse this swim meet schedule into JSON format:
 
 PDF TEXT (Chunk ${chunkNum}/${totalChunks}):
-${pdfText}
+${eventText}
 
 REQUIRED JSON STRUCTURE:
 {
