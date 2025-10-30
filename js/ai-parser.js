@@ -3,6 +3,8 @@ class DeepSeekParser {
         this.apiKey = apiKey;
         this.baseURL = 'https://api.deepseek.com/v1/chat/completions';
         this.maxTokens = 6000; // Safe limit to avoid timeouts
+        this.chunkSize = 8000; // Characters per chunk (roughly 2000 tokens)
+        this.overlapPercent = 0.10; // 10% overlap between chunks
         this.debugLog = [];
     }
 
@@ -13,11 +15,11 @@ class DeepSeekParser {
         // Preprocess: Remove non-event pages and clean up
         const cleanedText = this.preprocessPDF(pdfText);
         
-        // Split into page-based chunks with overlap
-        const chunks = this.createPageChunks(cleanedText);
+        // Split into size-based chunks with 10% overlap
+        const chunks = this.createSizeBasedChunks(cleanedText);
         
-        this.addDebugEntry(`Processing ${chunks.length} page chunks...`, 'info');
-        console.log(`Processing ${chunks.length} page chunks...`);
+        this.addDebugEntry(`Processing ${chunks.length} size-based chunks (${this.chunkSize} chars each with ${this.overlapPercent * 100}% overlap)...`, 'info');
+        console.log(`Processing ${chunks.length} size-based chunks...`);
         
         let allEvents = [];
         let meetInfo = null;
@@ -28,7 +30,7 @@ class DeepSeekParser {
             
             try {
                 const prompt = this.buildSwimMeetPrompt(chunks[i], i + 1, chunks.length);
-                const response = await this.callDeepSeekAPI(prompt);
+                const response = await this.callDeepSeekAPIStream(prompt);
                 
                 if (!meetInfo && response.meetInfo) {
                     meetInfo = response.meetInfo;
@@ -132,34 +134,33 @@ class DeepSeekParser {
         return cleaned.join('\n');
     }
 
-    createPageChunks(pdfText) {
-        const pages = pdfText.split(/PAGE \d+:/);
+    createSizeBasedChunks(pdfText) {
         const chunks = [];
-        const overlapChars = 200; // Characters to overlap between chunks
+        const overlapSize = Math.floor(this.chunkSize * this.overlapPercent);
+        const stepSize = this.chunkSize - overlapSize;
         
-        for (let i = 0; i < pages.length; i++) {
-            let page = pages[i].trim();
-            if (!page) continue;
+        let position = 0;
+        let chunkNum = 0;
+        
+        while (position < pdfText.length) {
+            const chunkEnd = Math.min(position + this.chunkSize, pdfText.length);
+            const chunk = pdfText.substring(position, chunkEnd);
             
-            let chunk = `PAGE ${i + 1}:\n${page}`;
-            
-            // Add overlap from previous page (last 200 chars)
-            if (i > 0 && pages[i - 1]) {
-                const prevPage = pages[i - 1].trim();
-                const overlap = prevPage.slice(-overlapChars);
-                chunk = `...${overlap}\n\n${chunk}`;
+            if (chunk.trim().length > 0) {
+                chunks.push(chunk);
+                chunkNum++;
             }
             
-            // Add overlap from next page (first 200 chars)
-            if (i < pages.length - 1 && pages[i + 1]) {
-                const nextPage = pages[i + 1].trim();
-                const overlap = nextPage.slice(0, overlapChars);
-                chunk = `${chunk}\n\n${overlap}...`;
-            }
+            // Move forward by stepSize to create 10% overlap
+            position += stepSize;
             
-            chunks.push(chunk);
+            // Break if we've reached the end
+            if (chunkEnd >= pdfText.length) {
+                break;
+            }
         }
         
+        this.addDebugEntry(`Created ${chunks.length} chunks from ${pdfText.length} characters (chunk size: ${this.chunkSize}, overlap: ${overlapSize} chars)`, 'info');
         return chunks;
     }
 
@@ -213,11 +214,12 @@ REQUIRED JSON STRUCTURE:
                 }
             ],
             temperature: 0.1,
-            max_tokens: this.maxTokens
+            max_tokens: this.maxTokens,
+            stream: true
         };
     }
 
-    async callDeepSeekAPI(prompt) {
+    async callDeepSeekAPIStream(prompt) {
         const response = await fetch(this.baseURL, {
             method: 'POST',
             headers: {
@@ -233,21 +235,56 @@ REQUIRED JSON STRUCTURE:
             throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
         }
 
-        const data = await response.json();
-        let content = data.choices[0].message.content;
-
-        // Log raw response
-        this.addDebugEntry(`RAW API RESPONSE:\n${content}`, 'response');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullContent = '';
+        let buffer = '';
 
         try {
-            const parsed = JSON.parse(content);
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                
+                // Keep the last incomplete line in buffer
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        if (data === '[DONE]') continue;
+                        
+                        try {
+                            const parsed = JSON.parse(data);
+                            const content = parsed.choices[0]?.delta?.content;
+                            if (content) {
+                                fullContent += content;
+                            }
+                        } catch (e) {
+                            // Skip invalid JSON chunks
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            this.addDebugEntry(`Stream reading error: ${error.message}`, 'error');
+            throw error;
+        }
+
+        // Log raw response
+        this.addDebugEntry(`RAW STREAMED RESPONSE (${fullContent.length} chars):\n${fullContent}`, 'response');
+
+        try {
+            const parsed = JSON.parse(fullContent);
             this.addDebugEntry(`Successfully parsed JSON with ${parsed.events?.length || 0} events`, 'success');
             return parsed;
         } catch (parseError) {
             this.addDebugEntry(`Parse failed, attempting repair... Error: ${parseError.message}`, 'warning');
             
             // Try to repair truncated JSON
-            const repaired = this.repairTruncatedJSON(content);
+            const repaired = this.repairTruncatedJSON(fullContent);
             this.addDebugEntry(`REPAIRED JSON:\n${repaired}`, 'response');
             
             try {
