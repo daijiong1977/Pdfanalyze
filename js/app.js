@@ -81,72 +81,73 @@ class SwimMeetParserApp {
                 <button onclick="app.analyzePDFFile()">📊 Analyze PDF</button>
                 <button onclick="app.processPDF()">🚀 Parse PDF</button>
             `;
+
         } catch (error) {
             alert(error.message);
         }
     }
 
-    async analyzePDFFile() {
-        try {
-            this.showStatus('Analyzing PDF...');
-
-            const pdfText = await this.pdfLoader.extractText(this.currentPDFFile);
-            const analyzer = new PDFAnalyzer();
-            const report = analyzer.analyzePDF(pdfText);
-
-            document.getElementById('analysis-report').textContent = report;
-            document.getElementById('analysis-section').hidden = false;
-            document.getElementById('status-section').hidden = true;
-        } catch (error) {
-            alert('Analysis failed: ' + error.message);
-            this.hideStatus();
-        }
-    }
-
     async processPDF() {
+        if (!this.currentPDFFile) {
+            alert('Please select a PDF file first');
+            return;
+        }
+
         const apiKey = this.configManager.loadApiKey();
         if (!apiKey) {
-            alert('Please save your DeepSeek API key first!');
+            alert('Please configure your DeepSeek API key first');
             return;
         }
 
-        if (!this.currentPDFFile) {
-            alert('Please select a PDF file first!');
-            return;
-        }
+        this.showLoading('Extracting text from PDF...');
 
         try {
-            this.showStatus('Extracting text from PDF...');
+            this.updateStatus('Reading PDF content...');
+            const pdfText = await this.pdfLoader.extractTextFromPDF(this.currentPDFFile);
 
-            const pdfText = await this.pdfLoader.extractText(this.currentPDFFile);
-
-            this.showStatus('Parsing events with AI...');
-
-            const parser = new DeepSeekParser(apiKey);
-            const result = await parser.parseMeetPDF(pdfText);
+            this.updateStatus('Analyzing with AI...');
+            const aiParser = new DeepSeekParser(apiKey);
+            const result = await aiParser.parseMeetPDF(pdfText);
 
             this.showResults(result);
 
         } catch (error) {
-            alert('Processing failed: ' + error.message);
-            console.error(error);
-            this.hideStatus();
+            console.error('Processing error:', error);
+            alert(`Error: ${error.message}`);
+        } finally {
+            this.hideLoading();
         }
     }
 
-    showStatus(message) {
-        document.getElementById('status-message').textContent = message;
-        document.getElementById('status-section').hidden = false;
+    showLoading(message) {
+        const statusSection = document.getElementById('status-section');
+        const statusMessage = document.getElementById('status-message');
+
+        statusMessage.textContent = message;
+        statusSection.hidden = false;
+        document.getElementById('results-section').hidden = true;
+
+        // Animate progress bar
+        const progressFill = document.querySelector('.progress-fill');
+        progressFill.style.width = '30%';
     }
 
-    hideStatus() {
+    updateStatus(message) {
+        document.getElementById('status-message').textContent = message;
+        const progressFill = document.querySelector('.progress-fill');
+        progressFill.style.width = '70%';
+    }
+
+    hideLoading() {
         document.getElementById('status-section').hidden = true;
+        const progressFill = document.querySelector('.progress-fill');
+        progressFill.style.width = '0%';
     }
 
     showResults(result) {
-        this.hideStatus();
+        const resultsSection = document.getElementById('results-section');
+        const eventsCount = document.getElementById('events-count');
 
-        // Build meet info HTML
         let meetInfoHtml = '';
         if (result.meetInfo) {
             meetInfoHtml = `<br>📋 Meet: ${result.meetInfo.name}`;
@@ -164,62 +165,129 @@ class SwimMeetParserApp {
             }
         }
 
-        document.getElementById('events-count').innerHTML =
-            `✅ Found ${result.events.length} events${meetInfoHtml}`;
+        eventsCount.innerHTML = `
+            ✅ Found <strong>${result.events.length}</strong> events
+            ${meetInfoHtml}
+        `;
+        
+        this.jsonEditor.renderEditableTable(result.events);
 
-        this.jsonEditor.renderTable(result.events);
-        document.getElementById('results-section').hidden = false;
-
-        // Store debug log
-        this.currentDebugLog = result.debugLog || [];
-    }
-
-    exportJSON() {
-        const events = this.jsonEditor.getEditedData();
-        const jsonStr = JSON.stringify(events, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'swim-meet-events.json';
-        a.click();
-        URL.revokeObjectURL(url);
-    }
-
-    copyToClipboard() {
-        const events = this.jsonEditor.getEditedData();
-        const jsonStr = JSON.stringify(events, null, 2);
-        navigator.clipboard.writeText(jsonStr).then(() => {
-            alert('JSON copied to clipboard!');
-        });
+        resultsSection.hidden = false;
+        
+        // Render debug log
+        this.renderDebugLog();
+        
+        // Scroll to results
+        resultsSection.scrollIntoView({ behavior: 'smooth' });
     }
 
     toggleDebug() {
         const debugSection = document.getElementById('debug-section');
-        const button = document.getElementById('toggle-debug');
-
+        const toggleBtn = document.getElementById('toggle-debug');
+        
         if (debugSection.hidden) {
-            this.renderDebugLog();
             debugSection.hidden = false;
-            button.textContent = 'Hide Debug Log';
+            toggleBtn.textContent = 'Hide Debug Log';
+            debugSection.scrollIntoView({ behavior: 'smooth' });
         } else {
             debugSection.hidden = true;
-            button.textContent = 'Show Debug Log';
+            toggleBtn.textContent = 'Show Debug Log';
         }
     }
 
     renderDebugLog() {
-        const debugLog = this.currentDebugLog || [];
-        const debugHtml = debugLog.map(entry => {
-            const className = entry.type === 'error' ? 'debug-error' :
-                             entry.type === 'success' ? 'debug-success' :
-                             entry.type === 'warning' ? 'debug-warning' : 'debug-info';
-            return `<div class="debug-entry ${className}">[${entry.timestamp}] ${entry.message}</div>`;
-        }).join('');
+        const debugLog = window.parserDebugLog || [];
+        const debugLogDiv = document.getElementById('debug-log');
+        
+        if (debugLog.length === 0) {
+            debugLogDiv.innerHTML = '<div class="debug-entry">No debug information available.</div>';
+            return;
+        }
+        
+        let html = '';
+        for (const entry of debugLog) {
+            const typeClass = entry.type === 'chunk' ? 'debug-chunk-header' :
+                             entry.type === 'error' ? 'debug-error' :
+                             entry.type === 'response' ? 'debug-response' : '';
+            
+            html += `<div class="debug-entry ${typeClass}">`;
+            html += `[${entry.timestamp}] ${this.escapeHtml(entry.message)}`;
+            html += `</div>`;
+        }
+        
+        debugLogDiv.innerHTML = html;
+    }
 
-        document.getElementById('debug-log').innerHTML = debugHtml || '<p>No debug log available</p>';
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    async analyzePDFFile() {
+        if (!this.currentPDFFile) {
+            alert('Please select a PDF file first');
+            return;
+        }
+
+        this.showLoading('Analyzing PDF structure...');
+
+        try {
+            const analyzer = new PDFAnalyzer();
+            const analysis = await analyzer.analyzePDF(this.currentPDFFile);
+            
+            const report = analyzer.generateReport();
+            
+            document.getElementById('analysis-report').textContent = report;
+            document.getElementById('analysis-section').hidden = false;
+            document.getElementById('analysis-section').scrollIntoView({ behavior: 'smooth' });
+            
+            console.log('PDF Analysis:', analysis);
+            console.log('Page Breakdown:', analyzer.getDetailedPageBreakdown());
+            
+        } catch (error) {
+            console.error('Analysis error:', error);
+            alert(`Analysis Error: ${error.message}`);
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    exportJSON() {
+        const jsonData = this.jsonEditor.exportJSON();
+        const blob = new Blob([jsonData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'swim-meet-events.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        URL.revokeObjectURL(url);
+    }
+
+    async copyToClipboard() {
+        const jsonData = this.jsonEditor.exportJSON();
+
+        try {
+            await navigator.clipboard.writeText(jsonData);
+            alert('JSON copied to clipboard!');
+        } catch (error) {
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = jsonData;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            alert('JSON copied to clipboard!');
+        }
     }
 }
 
-// Initialize app
-const app = new SwimMeetParserApp();
+let app;
+document.addEventListener('DOMContentLoaded', () => {
+    app = new SwimMeetParserApp();
+});
