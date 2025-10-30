@@ -79,16 +79,31 @@ class DeepSeekParser {
             let page = pages[i].trim();
             if (!page) continue;
             
+            // Check if page has event content (EVENT # pattern or event numbers)
+            const hasEvents = /EVENT\s+#/i.test(page) || 
+                            /^\s*\d+\s+.*?\d+\s*&/m.test(page) ||
+                            /event\s+\d+/i.test(page);
+            
+            if (!hasEvents) {
+                this.addDebugEntry(`Skipping page ${i + 1} (no events detected)`, 'info');
+                continue;
+            }
+            
             // Skip pages that look like cover/non-event pages
             const lowerPage = page.toLowerCase();
             const skipKeywords = [
+                'entry form',
+                'master entry form',
+                'team entry',
                 'welcome',
                 'thank you',
                 'officials',
                 'directions',
                 'facility rules',
                 'acknowledgments',
-                'sponsors'
+                'sponsors',
+                'sanction',
+                'location'
             ];
             
             // Check if page is mostly non-event content
@@ -99,9 +114,9 @@ class DeepSeekParser {
                 }
             }
             
-            // Skip if page has multiple skip keywords and no event numbers
-            if (skipCount >= 2 && !/event\s+\d+/i.test(page)) {
-                this.addDebugEntry(`Skipping page ${i + 1} (non-event content)`, 'info');
+            // Skip if page has multiple skip keywords
+            if (skipCount >= 2) {
+                this.addDebugEntry(`Skipping page ${i + 1} (non-event content: ${skipCount} skip keywords)`, 'info');
                 continue;
             }
             
@@ -182,7 +197,9 @@ CRITICAL FLORIDA SWIMMING NOTATION RULES:
 
 CHUNKING NOTE: You are processing chunk ${chunkNum} of ${totalChunks}. Extract ALL events you see, even if they seem partial. Duplicate event numbers across chunks will be merged.
 
-OUTPUT FORMAT: Return ONLY valid JSON, no other text. If you cannot complete parsing all events due to length, still return valid JSON with what you found.`
+IMPORTANT: If you find NO events in this chunk (e.g., it contains only meet info, rules, or entry forms), return valid JSON with an empty events array.
+
+OUTPUT FORMAT: Return ONLY valid JSON, no markdown, no explanations. Must be parseable by JSON.parse().`
                 },
                 {
                     role: "user",
