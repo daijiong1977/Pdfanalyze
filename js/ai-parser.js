@@ -219,26 +219,31 @@ OUTPUT FORMAT: Return ONLY valid JSON, no markdown fences, no code blocks, no ex
 PDF TEXT (Chunk ${chunkNum}/${totalChunks}):
 ${eventText}
 
-REQUIRED JSON STRUCTURE:
+REQUIRED JSON FORMAT - Return exactly this structure:
 {
   "meetInfo": {
-    "name": "extracted meet name",
-    "date": "YYYY-MM-DD if found"
+    "name": "Meet Name",
+    "date": "2025-11-15",
+    "maxEventsPerDay": "5 per day",
+    "maxTotalEvents": "10 total",
+    "maxSessions": 3
   },
   "events": [
     {
       "eventNumber": 1,
-      "day": "Friday/Saturday/Sunday",
-      "session": "Session 1/2/3",
-      "description": "complete event description",
-      "ageGroup": "exact age group text",
-      "eventGender": "F/M/Mixed",
-      "timeStandardA": "time or null",
-      "timeStandardB": "time or null",
-      "notes": "Florida notation details"
+      "day": "Friday",
+      "session": "Session 1",
+      "description": "8 & Under 25 Free",
+      "ageGroup": "8 & Under",
+      "eventGender": "F",
+      "timeStandardA": null,
+      "timeStandardB": null,
+      "notes": "Girls event"
     }
   ]
-}`
+}
+
+REMEMBER: Output must be pure JSON only. No backticks, no additional text, no markdown formatting, no code blocks. Just the raw JSON object starting with { and ending with }.`
                 }
             ],
             temperature: 0.1,
