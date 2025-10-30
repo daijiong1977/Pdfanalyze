@@ -3,7 +3,7 @@ class DeepSeekParser {
         this.apiKey = apiKey;
         this.baseURL = 'https://api.deepseek.com/v1/chat/completions';
         this.maxTokens = 6000; // Safe limit to avoid timeouts
-        this.chunkSize = 8000; // Characters per chunk (roughly 2000 tokens)
+        this.chunkSize = 3000; // Characters per chunk (roughly 750 tokens) - smaller for more chunks
         this.overlapPercent = 0.10; // 10% overlap between chunks
         this.debugLog = [];
     }
