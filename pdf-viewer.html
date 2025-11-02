@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Parser - Swim Meet Events</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+        }
+        
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9ff;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .upload-area:hover {
+            background: #f0f2ff;
+            border-color: #764ba2;
+        }
+        
+        .upload-area.drag-over {
+            background: #e8ebff;
+            border-color: #764ba2;
+        }
+        
+        #pdfInput {
+            display: none;
+        }
+        
+        .upload-area p {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        
+        .upload-area .icon {
+            font-size: 40px;
+            margin-bottom: 10px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+        
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            border: 2px solid #ddd;
+        }
+        
+        .btn-secondary:hover {
+            background: #e8e8e8;
+        }
+        
+        .btn-type-a {
+            background: #3498db;
+            color: white;
+            flex: 1;
+            min-width: 150px;
+        }
+        
+        .btn-type-a:hover {
+            background: #2980b9;
+        }
+        
+        .btn-type-a.active {
+            background: #2c3e50;
+            box-shadow: 0 0 10px rgba(52, 152, 219, 0.5);
+        }
+        
+        .btn-type-b {
+            background: #e74c3c;
+            color: white;
+            flex: 1;
+            min-width: 150px;
+        }
+        
+        .btn-type-b:hover {
+            background: #c0392b;
+        }
+        
+        .btn-type-b.active {
+            background: #2c3e50;
+            box-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+        }
+        
+        .file-info {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .file-info.error {
+            background: #ffebee;
+            border-left-color: #f44336;
+        }
+        
+        .file-info p {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .filter-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+        
+        .filter-group input,
+        .filter-group select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .filter-group input:focus,
+        .filter-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
+        }
+        
+        .table-wrapper {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+        
+        th:hover {
+            background: #764ba2;
+        }
+        
+        th.sortable:after {
+            content: ' ↕';
+            opacity: 0.5;
+        }
+        
+        th.sort-asc:after {
+            content: ' ↑';
+            opacity: 1;
+        }
+        
+        th.sort-desc:after {
+            content: ' ↓';
+            opacity: 1;
+        }
+        
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+        }
+        
+        tr:hover {
+            background: #f5f5f5;
+        }
+        
+        tr:nth-child(even) {
+            background: #fafafa;
+        }
+        
+        .event-number {
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .gender-girls {
+            background: #fce4ec;
+            color: #c2185b;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+        
+        .gender-boys {
+            background: #e3f2fd;
+            color: #1565c0;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+        
+        .stroke-badge {
+            background: #f3e5f5;
+            color: #6a1b9a;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .stat-card h3 {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        
+        .stat-card .value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #333;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        
+        .no-data p {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .meet-info {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .meet-info h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .meet-info p {
+            font-size: 13px;
+            color: #666;
+            margin: 5px 0;
+        }
+        
+        .button-group.center {
+            justify-content: center;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏊 Swim Meet Event Parser</h1>
+            <p>Upload PDF and parse events with sortable, filterable results</p>
+        </div>
+        
+        <div class="content">
+            <!-- Upload Section -->
+            <div class="section">
+                <div class="section-title">📄 Step 1: Upload PDF</div>
+                <div class="upload-area" id="uploadArea">
+                    <div class="icon">📁</div>
+                    <p><strong>Click to upload</strong> or drag and drop your PDF</p>
+                    <p style="font-size: 12px; color: #999;">Supported: PDF files (Patriot Aquatics, FAST, RAFC formats)</p>
+                    <input type="file" id="pdfInput" accept=".pdf" />
+                </div>
+                <div id="fileInfo" class="file-info hidden"></div>
+            </div>
+            
+            <!-- Format Selection -->
+            <div class="section">
+                <div class="section-title">🎯 Step 2: Select Format</div>
+                <p style="color: #666; margin-bottom: 15px; font-size: 14px;">
+                    <strong>Type A:</strong> Hyphenated pairs (135-136 10 & Under 100 Freestyle)<br>
+                    <strong>Type B:</strong> Quoted tables ("101","Description","102")
+                </p>
+                <div class="button-group center">
+                    <button class="btn-type-a" id="btnTypeA" disabled>
+                        Button A - Type A Format
+                    </button>
+                    <button class="btn-type-b" id="btnTypeB" disabled>
+                        Button B - Type B Format
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Results Section -->
+            <div class="section" id="resultsSection" style="display: none;">
+                <div class="section-title">📊 Results</div>
+                
+                <!-- Meet Info -->
+                <div id="meetInfo" class="meet-info hidden">
+                    <h3 id="meetName">Meet Name</h3>
+                    <p id="meetDate"></p>
+                    <p id="meetAddress"></p>
+                    <p id="meetLimit"></p>
+                </div>
+                
+                <!-- Stats -->
+                <div id="statsContainer" class="stats hidden"></div>
+                
+                <!-- Filters -->
+                <div class="filters">
+                    <div class="filter-group">
+                        <label>Search</label>
+                        <input type="text" id="filterSearch" placeholder="Search events...">
+                    </div>
+                    <div class="filter-group">
+                        <label>Filter by Gender</label>
+                        <select id="filterGender">
+                            <option value="">All</option>
+                            <option value="Girls">Girls</option>
+                            <option value="Boys">Boys</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Filter by Stroke</label>
+                        <select id="filterStroke">
+                            <option value="">All Strokes</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Filter by Age Group</label>
+                        <select id="filterAge">
+                            <option value="">All Ages</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Table -->
+                <div class="table-wrapper">
+                    <table id="eventsTable">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-column="eventNumber">Event #</th>
+                                <th class="sortable" data-column="gender">Gender</th>
+                                <th class="sortable" data-column="description">Description</th>
+                                <th class="sortable" data-column="stroke">Stroke</th>
+                                <th class="sortable" data-column="distance">Distance</th>
+                                <th class="sortable" data-column="ageGroup">Age Group</th>
+                            </tr>
+                        </thead>
+                        <tbody id="eventsTableBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div id="noDataMessage" class="no-data hidden">
+                    <p>No events found matching your filters.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/pdf-parser-standalone.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Set up PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        let currentPdfText = '';
+        let currentFormat = '';
+        let allEvents = [];
+
+        // DOM Elements
+        const uploadArea = document.getElementById('uploadArea');
+        const pdfInput = document.getElementById('pdfInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const btnTypeA = document.getElementById('btnTypeA');
+        const btnTypeB = document.getElementById('btnTypeB');
+        const resultsSection = document.getElementById('resultsSection');
+        const eventsTableBody = document.getElementById('eventsTableBody');
+        const filterSearch = document.getElementById('filterSearch');
+        const filterGender = document.getElementById('filterGender');
+        const filterStroke = document.getElementById('filterStroke');
+        const filterAge = document.getElementById('filterAge');
+        const sortableHeaders = document.querySelectorAll('th.sortable');
+        const meetInfo = document.getElementById('meetInfo');
+        const statsContainer = document.getElementById('statsContainer');
+
+        // Upload handling
+        uploadArea.addEventListener('click', () => pdfInput.click());
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handlePdfUpload(files[0]);
+            }
+        });
+
+        pdfInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handlePdfUpload(e.target.files[0]);
+            }
+        });
+
+        async function handlePdfUpload(file) {
+            if (file.type !== 'application/pdf') {
+                showFileInfo('❌ Please upload a PDF file.', true);
+                return;
+            }
+
+            showFileInfo(`📄 ${file.name} (${(file.size / 1024).toFixed(2)} KB)`, false);
+            
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+                
+                let fullText = '';
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(' ');
+                    fullText += pageText + '\n';
+                }
+
+                currentPdfText = fullText;
+                btnTypeA.disabled = false;
+                btnTypeB.disabled = false;
+                currentFormat = '';
+                
+                showFileInfo(`✅ PDF loaded: ${pdf.numPages} pages`, false);
+            } catch (error) {
+                showFileInfo(`❌ Error loading PDF: ${error.message}`, true);
+                btnTypeA.disabled = true;
+                btnTypeB.disabled = true;
+            }
+        }
+
+        function showFileInfo(message, isError) {
+            fileInfo.textContent = message;
+            fileInfo.classList.remove('hidden');
+            fileInfo.classList.toggle('error', isError);
+        }
+
+        // Format selection
+        btnTypeA.addEventListener('click', () => parseAndDisplayEvents('A'));
+        btnTypeB.addEventListener('click', () => parseAndDisplayEvents('B'));
+
+        function parseAndDisplayEvents(format) {
+            currentFormat = format;
+            btnTypeA.classList.toggle('active', format === 'A');
+            btnTypeB.classList.toggle('active', format === 'B');
+
+            if (!currentPdfText) {
+                showFileInfo('❌ Please upload a PDF first.', true);
+                return;
+            }
+
+            try {
+                const result = parseFullPDFData(currentPdfText);
+                allEvents = result.events || [];
+
+                // Display results
+                displayMeetInfo(result);
+                displayStats();
+                populateFilters();
+                displayEvents(allEvents);
+                resultsSection.style.display = 'block';
+            } catch (error) {
+                showFileInfo(`❌ Parsing error: ${error.message}`, true);
+            }
+        }
+
+        function displayMeetInfo(result) {
+            if (result.eventName || result.dateRange || result.address) {
+                document.getElementById('meetName').textContent = result.eventName || 'Swim Meet';
+                document.getElementById('meetDate').textContent = `📅 ${result.dateRange || 'N/A'}`;
+                document.getElementById('meetAddress').textContent = `📍 ${result.address || 'N/A'}`;
+                document.getElementById('meetLimit').textContent = `⏱️ ${result.entryLimit || 'N/A'}`;
+                meetInfo.classList.remove('hidden');
+            } else {
+                meetInfo.classList.add('hidden');
+            }
+        }
+
+        function displayStats() {
+            const girlsCount = allEvents.filter(e => e.gender === 'Girls').length;
+            const boysCount = allEvents.filter(e => e.gender === 'Boys').length;
+            const strokes = new Set(allEvents.map(e => e.stroke));
+
+            statsContainer.innerHTML = `
+                <div class="stat-card">
+                    <h3>Total Events</h3>
+                    <div class="value">${allEvents.length}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Girls Events</h3>
+                    <div class="value">${girlsCount}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Boys Events</h3>
+                    <div class="value">${boysCount}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Stroke Types</h3>
+                    <div class="value">${strokes.size}</div>
+                </div>
+            `;
+            statsContainer.classList.remove('hidden');
+        }
+
+        function populateFilters() {
+            // Populate strokes
+            const strokes = [...new Set(allEvents.map(e => e.stroke))].sort();
+            filterStroke.innerHTML = '<option value="">All Strokes</option>' + 
+                strokes.map(s => `<option value="${s}">${s}</option>`).join('');
+
+            // Populate ages
+            const ages = [...new Set(allEvents.map(e => extractAgeGroup(e.description)))].sort();
+            filterAge.innerHTML = '<option value="">All Ages</option>' + 
+                ages.map(a => `<option value="${a}">${a}</option>`).join('');
+        }
+
+        function extractAgeGroup(description) {
+            if (!description) return 'N/A';
+            if (description.includes('Senior')) return 'Senior';
+            if (description.includes('8 & Under')) return '8 & Under';
+            if (description.includes('10 & Under')) return '10 & Under';
+            if (description.includes('11 & 12')) return '11 & 12';
+            if (description.includes('13 & 14')) return '13 & 14';
+            if (description.includes('Open')) return 'Open';
+            return 'Other';
+        }
+
+        function extractDistance(description) {
+            const match = description.match(/(\d{1,4})\s*(M|m)?(?:\s|$)/);
+            return match ? match[1] : 'N/A';
+        }
+
+        function getFilteredEvents() {
+            return allEvents.filter(event => {
+                const matchSearch = event.description.toLowerCase().includes(filterSearch.value.toLowerCase()) ||
+                                  event.eventNumber.toString().includes(filterSearch.value) ||
+                                  event.stroke.toLowerCase().includes(filterSearch.value.toLowerCase());
+                const matchGender = !filterGender.value || event.gender === filterGender.value;
+                const matchStroke = !filterStroke.value || event.stroke === filterStroke.value;
+                const eventAge = extractAgeGroup(event.description);
+                const matchAge = !filterAge.value || eventAge === filterAge.value;
+
+                return matchSearch && matchGender && matchStroke && matchAge;
+            });
+        }
+
+        function displayEvents(events) {
+            const filtered = getFilteredEvents();
+
+            if (filtered.length === 0) {
+                eventsTableBody.innerHTML = '';
+                document.getElementById('noDataMessage').classList.remove('hidden');
+                return;
+            }
+
+            document.getElementById('noDataMessage').classList.add('hidden');
+            eventsTableBody.innerHTML = filtered.map(event => `
+                <tr>
+                    <td class="event-number">${event.eventNumber}</td>
+                    <td><span class="gender-${event.gender.toLowerCase()}">${event.gender}</span></td>
+                    <td>${event.description}</td>
+                    <td><span class="stroke-badge">${event.stroke}</span></td>
+                    <td>${extractDistance(event.description)}</td>
+                    <td>${extractAgeGroup(event.description)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Sorting
+        let sortColumn = 'eventNumber';
+        let sortDirection = 'asc';
+
+        sortableHeaders.forEach(header => {
+            header.addEventListener('click', () => {
+                const column = header.dataset.column;
+                
+                sortableHeaders.forEach(h => {
+                    h.classList.remove('sort-asc', 'sort-desc');
+                });
+
+                if (sortColumn === column) {
+                    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortColumn = column;
+                    sortDirection = 'asc';
+                }
+
+                header.classList.add(sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+
+                const filtered = getFilteredEvents();
+                filtered.sort((a, b) => {
+                    let aVal = a[column];
+                    let bVal = b[column];
+
+                    if (column === 'eventNumber') {
+                        aVal = parseInt(aVal);
+                        bVal = parseInt(bVal);
+                    } else {
+                        aVal = String(aVal).toLowerCase();
+                        bVal = String(bVal).toLowerCase();
+                    }
+
+                    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+                    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+                    return 0;
+                });
+
+                eventsTableBody.innerHTML = filtered.map(event => `
+                    <tr>
+                        <td class="event-number">${event.eventNumber}</td>
+                        <td><span class="gender-${event.gender.toLowerCase()}">${event.gender}</span></td>
+                        <td>${event.description}</td>
+                        <td><span class="stroke-badge">${event.stroke}</span></td>
+                        <td>${extractDistance(event.description)}</td>
+                        <td>${extractAgeGroup(event.description)}</td>
+                    </tr>
+                `).join('');
+            });
+        });
+
+        // Filter event listeners
+        filterSearch.addEventListener('input', () => displayEvents(allEvents));
+        filterGender.addEventListener('change', () => displayEvents(allEvents));
+        filterStroke.addEventListener('change', () => displayEvents(allEvents));
+        filterAge.addEventListener('change', () => displayEvents(allEvents));
+    </script>
+</body>
+</html>
