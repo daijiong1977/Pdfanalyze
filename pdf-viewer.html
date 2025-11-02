@@ -394,6 +394,77 @@
         .hidden {
             display: none;
         }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.4);
+        }
+        
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .modal-header h2 {
+            margin: 0;
+            color: #333;
+        }
+        
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 28px;
+            font-weight: bold;
+            color: #999;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+        }
+        
+        .close-btn:hover {
+            color: #333;
+        }
+        
+        .raw-text-display {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border: 1px solid #ddd;
+            max-height: 500px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -428,8 +499,8 @@
                     <button class="btn-primary" id="btnParseAuto" disabled style="flex: 1; min-width: 200px;">
                         🚀 Parse PDF (Auto-Detect Format)
                     </button>
-                    <button class="btn-secondary" id="btnManualSelect" disabled style="flex: 1; min-width: 200px; display: none;">
-                        ⚙️ Manual Format Selection
+                    <button class="btn-secondary" id="btnViewRaw" disabled style="flex: 0; min-width: 140px;">
+                        📋 View Raw Text
                     </button>
                 </div>
                 <div id="detectedFormat" style="margin-top: 10px; font-size: 13px; color: #667eea; font-weight: 600; display: none;"></div>
@@ -502,6 +573,17 @@
         </div>
     </div>
 
+    <!-- Raw Text Modal -->
+    <div id="rawTextModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Raw PDF Text (First 5000 characters)</h2>
+                <button class="close-btn" id="closeRawModal">&times;</button>
+            </div>
+            <div class="raw-text-display" id="rawTextDisplay"></div>
+        </div>
+    </div>
+
     <script src="js/pdf-parser-standalone.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -513,7 +595,7 @@
         const pdfInput = document.getElementById('pdfInput');
         const fileInfo = document.getElementById('fileInfo');
         const btnParseAuto = document.getElementById('btnParseAuto');
-        const btnManualSelect = document.getElementById('btnManualSelect');
+        const btnViewRaw = document.getElementById('btnViewRaw');
         const detectedFormat = document.getElementById('detectedFormat');
         const resultsSection = document.getElementById('resultsSection');
         const eventsTableBody = document.getElementById('eventsTableBody');
@@ -524,6 +606,11 @@
         const sortableHeaders = document.querySelectorAll('th.sortable');
         const meetInfo = document.getElementById('meetInfo');
         const statsContainer = document.getElementById('statsContainer');
+        
+        // Modal elements
+        const rawTextModal = document.getElementById('rawTextModal');
+        const rawTextDisplay = document.getElementById('rawTextDisplay');
+        const closeRawModal = document.getElementById('closeRawModal');
 
         let currentPdfText = '';
         let allEvents = [];
@@ -574,13 +661,35 @@
 
                 currentPdfText = fullText;
                 btnParseAuto.disabled = false;
+                btnViewRaw.disabled = false;
                 
                 showFileInfo(`✅ PDF loaded: ${pdf.numPages} pages - Ready to parse!`, false);
             } catch (error) {
                 showFileInfo(`❌ Error loading PDF: ${error.message}`, true);
                 btnParseAuto.disabled = true;
+                btnViewRaw.disabled = true;
             }
         }
+        
+        // View raw text button
+        btnViewRaw.addEventListener('click', () => {
+            if (currentPdfText) {
+                rawTextDisplay.textContent = currentPdfText.substring(0, 5000);
+                rawTextModal.classList.add('show');
+            }
+        });
+        
+        // Close modal
+        closeRawModal.addEventListener('click', () => {
+            rawTextModal.classList.remove('show');
+        });
+        
+        // Close modal when clicking outside
+        rawTextModal.addEventListener('click', (e) => {
+            if (e.target === rawTextModal) {
+                rawTextModal.classList.remove('show');
+            }
+        });
 
         function showFileInfo(message, isError) {
             fileInfo.textContent = message;
@@ -606,24 +715,42 @@
                 // Parse automatically
                 parseAndDisplayEvents(detectedType);
             } catch (error) {
-                showFileInfo(`❌ Parsing error: ${error.message}`, true);
+                console.error('❌ Detection error:', error);
+                showFileInfo(`❌ Error: ${error.message}`, true);
             }
         });
 
         function detectFormat(text) {
+            // Debug info
+            const hasQuotedStructure = text.includes('","');
+            const hasQuotedNumbers = text.match(/"\d{1,3}"/);
+            const hasHyphens = text.match(/\d{1,3}-\d{1,3}/);
+            
+            console.log('🔍 Format Detection Debug:');
+            console.log('  - Has quoted structure (",")?', hasQuotedStructure);
+            console.log('  - Has quoted numbers?', !!hasQuotedNumbers);
+            console.log('  - Has hyphens (\d-\d)?', !!hasHyphens);
+            console.log('  - First 500 chars:', text.substring(0, 500));
+            
             // HEURISTIC 1: Type B - Check for quoted three-column CSV structure
             // Looking for: "101","Description","102"
-            if (text.includes('","') && text.match(/"\d{1,3}"/)) {
+            if (hasQuotedStructure && hasQuotedNumbers) {
+                console.log('✅ Format detected: Type B (Quoted Table)');
                 return 'B';
             }
             // HEURISTIC 2: Type A - Check for hyphenated event pairs
             // Looking for: 135-136
-            else if (text.match(/\d{1,3}-\d{1,3}/)) {
+            else if (hasHyphens) {
+                console.log('✅ Format detected: Type A (Hyphenated Pairs)');
                 return 'A';
             }
             // Unknown format
             else {
-                throw new Error('Unknown PDF format');
+                console.error('❌ No format patterns detected');
+                console.error('Looking for either:');
+                console.error('  - Type B: "101","Description","102"');
+                console.error('  - Type A: 135-136 (numbers-hyphen-numbers)');
+                throw new Error('Unknown PDF format - could not detect Type A (hyphenated pairs) or Type B (quoted table)');
             }
         }
 
