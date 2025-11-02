@@ -114,44 +114,45 @@ function extractStroke(description) {
 
 /**
  * Standardizes raw PDF text carefully.
- * KEY INSIGHT: PDFs fragment numbers differently depending on OCR/formatting:
- * - "1  0  0" (multiple spaces) = definitely fragmented
- * - "1 3 5-1 3 6" (single spaces around hyphen) = event pair fragmentation
- * - "1 0 0" before stroke keyword = distance fragmentation
- * PRESERVE: "13 & 14 200", etc. (real multi-digit numbers with operators)
+ * KEY INSIGHT: PDFs from web extraction LOSE LINE BREAKS, causing sentences to merge.
+ * Example input: "...November 1 4 - 1 6 , 202 5 SANCTIONHeld under...Any swimmer..."
+ * Example output: "...November 14-16, 2025 SANCTION Held under...Any swimmer..."
+ * 
+ * Strategy (like original test-pdf-parser.js):
+ * 1. FIRST: Convert ALL line breaks to spaces, collapse multiple spaces (reconstruct sentences)
+ * 2. THEN: Fix fragmented numbers and abbreviations (targeted cleaning)
+ * This aggressive PASS 1 is critical for PDFs extracted from web sources!
  */
 function cleanRawText(fullText) {
     let cleanedText = fullText;
 
-    // 1. Standardize line breaks to spaces
+    // ========== PASS 1: RECONSTRUCT SENTENCES (MOST CRITICAL FOR WEB-EXTRACTED PDFs) ==========
+    // Convert ALL line breaks to spaces (handles merged text from web extraction)
     cleanedText = cleanedText.replace(/[\r\n]+/g, ' ');
     
-    // 2. Fix FRAGMENTED EVENT PAIRS first: "1 3 5-1 3 6" → "135-136"
-    // Pattern: single digit-space-digit-space-digit, hyphen, single digit-space-digit-space-digit
+    // Collapse multiple spaces to single space immediately (normalizes merged text)
+    cleanedText = cleanedText.replace(/\s{2,}/g, ' ');
+    
+    // ========== PASS 2: FIX FRAGMENTED EVENT PAIRS ==========
+    // Pattern: "1 3 5-1 3 6" → "135-136"
     cleanedText = cleanedText.replace(/(\d)\s(\d)\s(\d)\s*-\s*(\d)\s(\d)\s(\d)/g, '$1$2$3-$4$5$6');
     
-    // 3. Fix fragmented ABBREVIATIONS with dots: "M . R ." → "MR"
+    // ========== PASS 3: FIX ABBREVIATIONS ==========
+    // Fix fragmented ABBREVIATIONS with dots: "M . R ." → "MR"
     cleanedText = cleanedText.replace(/([A-Z])\s*\.\s+([A-Z])\s*\./g, '$1$2');
     
-    // 4. Fix fragmented single-letter abbreviations: "I M" → "IM"
+    // Fix fragmented single-letter abbreviations: "I M" → "IM", "F R" → "FR", etc.
     cleanedText = cleanedText.replace(/\bI\s+M\b/g, 'IM');
     cleanedText = cleanedText.replace(/\bF\s+R\b/g, 'FR');
     cleanedText = cleanedText.replace(/\bM\s+R\b/g, 'MR');
     
-    // 5. Fix fragmented NUMBERS with context awareness
+    // ========== PASS 4: FIX FRAGMENTED NUMBERS (Context-aware) ==========
     // Fix "100 M.R." or "100 IM" patterns (distance + stroke/abbreviation)
-    // These are clearly 3-digit distances, not event numbers
-    cleanedText = cleanedText.replace(/(\d)\s+(\d)\s+(\d)(?=\s+(?:M\.R|MR|IM|FR|M|F))/g, '$1$2$3'); // "100 MR" or "100 IM"
+    cleanedText = cleanedText.replace(/(\d)\s+(\d)\s+(\d)(?=\s+(?:M\.R|MR|IM|FR|M|F))/g, '$1$2$3');
     
-    // Fix pure fragmented numbers with multiple spaces: "1  0  0" → "100"
-    cleanedText = cleanedText.replace(/(\d)\s{2,}(\d)\s{2,}(\d)/g, '$1$2$3');
-    cleanedText = cleanedText.replace(/(\d)\s{2,}(\d)\s{2,}(\d)\s{2,}(\d)/g, '$1$2$3$4');
-    
-    // 6. Clean up spaces around hyphens: "135 - 136" → "135-136"
+    // ========== PASS 5: NORMALIZE HYPHENS ==========
+    // Clean up spaces around hyphens: "135 - 136" → "135-136"
     cleanedText = cleanedText.replace(/(\d)\s*-\s*(\d)/g, '$1-$2');
-    
-    // 7. Normalize multiple spaces to single space
-    cleanedText = cleanedText.replace(/\s{2,}/g, ' ');
 
     return cleanedText.trim();
 }
