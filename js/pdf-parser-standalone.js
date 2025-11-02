@@ -193,10 +193,10 @@ function extractBasicInfo(fullText) {
 // 2A. Parser for Type A Documents (Hyphenated Event Pairs)
 function parseEvents_TypeA(fullText) {
     const events = [];
+    const processedRanges = new Set(); // Track which sections we've already parsed
     
-    // Find all lines with hyphenated event pairs
+    // PASS 1: Find all lines with hyphenated event pairs (normal format)
     // Pattern: "135-136 10 & Under 100 Freestyle"
-    // Stop at: next event pair OR session markers (Saturday/Sunday/Friday AM/PM)
     const eventLineRegex = /(\d{1,3})-(\d{1,3})\s+([^-\n]*?)(?=(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+(?:AM|PM)|(\d{1,3})-\d{1,3})|$)/gm;
     
     let match;
@@ -218,6 +218,7 @@ function parseEvents_TypeA(fullText) {
                 description: description,
                 stroke: stroke
             });
+            processedRanges.add(girlsNum);
         }
         
         if (!isNaN(boysNum)) {
@@ -227,6 +228,48 @@ function parseEvents_TypeA(fullText) {
                 description: description,
                 stroke: stroke
             });
+            processedRanges.add(boysNum);
+        }
+    }
+    
+    // PASS 2: Find fragmented event pairs (OCR splits "7-8" into "7  8" with multiple spaces)
+    // Pattern: "7  8 11 & 12 200 Freestyle" where 2+ spaces between digits indicate OCR fragmentation
+    const fragmentedRegex = /(\d{1,3})\s{2,}(\d{1,3})\s+([^-\n]*?)(?=(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+(?:AM|PM)|(\d{1,3})\s{2,}\d{1,3}|(\d{1,3})-\d{1,3})|$)/gm;
+    
+    while ((match = fragmentedRegex.exec(fullText)) !== null) {
+        const girlsNum = parseInt(match[1]);
+        const boysNum = parseInt(match[2]);
+        let description = match[3].trim();
+        
+        // Skip if we already parsed these event numbers (avoid duplicates)
+        if (processedRanges.has(girlsNum) || processedRanges.has(boysNum)) {
+            continue;
+        }
+        
+        // Remove session markers
+        description = description.replace(/\s*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+(AM|PM)\s*/i, '').trim();
+        
+        // Extract stroke
+        const stroke = extractStroke(description);
+        
+        if (!isNaN(girlsNum)) {
+            events.push({
+                eventNumber: girlsNum,
+                gender: 'Girls',
+                description: description,
+                stroke: stroke
+            });
+            processedRanges.add(girlsNum);
+        }
+        
+        if (!isNaN(boysNum)) {
+            events.push({
+                eventNumber: boysNum,
+                gender: 'Boys',
+                description: description,
+                stroke: stroke
+            });
+            processedRanges.add(boysNum);
         }
     }
     
