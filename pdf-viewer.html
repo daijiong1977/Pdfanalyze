@@ -418,19 +418,21 @@
             
             <!-- Format Selection -->
             <div class="section">
-                <div class="section-title">🎯 Step 2: Select Format</div>
+                <div class="section-title">🎯 Step 2: Parse Events</div>
                 <p style="color: #666; margin-bottom: 15px; font-size: 14px;">
+                    The parser will <strong>automatically detect</strong> the format (Type A or Type B).<br>
                     <strong>Type A:</strong> Hyphenated pairs (135-136 10 & Under 100 Freestyle)<br>
                     <strong>Type B:</strong> Quoted tables ("101","Description","102")
                 </p>
                 <div class="button-group center">
-                    <button class="btn-type-a" id="btnTypeA" disabled>
-                        Button A - Type A Format
+                    <button class="btn-primary" id="btnParseAuto" disabled style="flex: 1; min-width: 200px;">
+                        🚀 Parse PDF (Auto-Detect Format)
                     </button>
-                    <button class="btn-type-b" id="btnTypeB" disabled>
-                        Button B - Type B Format
+                    <button class="btn-secondary" id="btnManualSelect" disabled style="flex: 1; min-width: 200px; display: none;">
+                        ⚙️ Manual Format Selection
                     </button>
                 </div>
+                <div id="detectedFormat" style="margin-top: 10px; font-size: 13px; color: #667eea; font-weight: 600; display: none;"></div>
             </div>
             
             <!-- Results Section -->
@@ -506,16 +508,13 @@
         // Set up PDF.js worker
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-        let currentPdfText = '';
-        let currentFormat = '';
-        let allEvents = [];
-
         // DOM Elements
         const uploadArea = document.getElementById('uploadArea');
         const pdfInput = document.getElementById('pdfInput');
         const fileInfo = document.getElementById('fileInfo');
-        const btnTypeA = document.getElementById('btnTypeA');
-        const btnTypeB = document.getElementById('btnTypeB');
+        const btnParseAuto = document.getElementById('btnParseAuto');
+        const btnManualSelect = document.getElementById('btnManualSelect');
+        const detectedFormat = document.getElementById('detectedFormat');
         const resultsSection = document.getElementById('resultsSection');
         const eventsTableBody = document.getElementById('eventsTableBody');
         const filterSearch = document.getElementById('filterSearch');
@@ -525,6 +524,9 @@
         const sortableHeaders = document.querySelectorAll('th.sortable');
         const meetInfo = document.getElementById('meetInfo');
         const statsContainer = document.getElementById('statsContainer');
+
+        let currentPdfText = '';
+        let allEvents = [];
 
         // Upload handling
         uploadArea.addEventListener('click', () => pdfInput.click());
@@ -571,15 +573,12 @@
                 }
 
                 currentPdfText = fullText;
-                btnTypeA.disabled = false;
-                btnTypeB.disabled = false;
-                currentFormat = '';
+                btnParseAuto.disabled = false;
                 
-                showFileInfo(`✅ PDF loaded: ${pdf.numPages} pages`, false);
+                showFileInfo(`✅ PDF loaded: ${pdf.numPages} pages - Ready to parse!`, false);
             } catch (error) {
                 showFileInfo(`❌ Error loading PDF: ${error.message}`, true);
-                btnTypeA.disabled = true;
-                btnTypeB.disabled = true;
+                btnParseAuto.disabled = true;
             }
         }
 
@@ -589,15 +588,46 @@
             fileInfo.classList.toggle('error', isError);
         }
 
-        // Format selection
-        btnTypeA.addEventListener('click', () => parseAndDisplayEvents('A'));
-        btnTypeB.addEventListener('click', () => parseAndDisplayEvents('B'));
+        // Auto-detect format and parse
+        btnParseAuto.addEventListener('click', () => {
+            if (!currentPdfText) {
+                showFileInfo('❌ Please upload a PDF first.', true);
+                return;
+            }
+
+            try {
+                // Detect format
+                const detectedType = detectFormat(currentPdfText);
+                
+                // Show detected format
+                detectedFormat.textContent = `✅ Detected: ${detectedType === 'B' ? 'Type B (Quoted Table)' : 'Type A (Hyphenated Pairs)'}`;
+                detectedFormat.style.display = 'block';
+
+                // Parse automatically
+                parseAndDisplayEvents(detectedType);
+            } catch (error) {
+                showFileInfo(`❌ Parsing error: ${error.message}`, true);
+            }
+        });
+
+        function detectFormat(text) {
+            // HEURISTIC 1: Type B - Check for quoted three-column CSV structure
+            // Looking for: "101","Description","102"
+            if (text.includes('","') && text.match(/"\d{1,3}"/)) {
+                return 'B';
+            }
+            // HEURISTIC 2: Type A - Check for hyphenated event pairs
+            // Looking for: 135-136
+            else if (text.match(/\d{1,3}-\d{1,3}/)) {
+                return 'A';
+            }
+            // Unknown format
+            else {
+                throw new Error('Unknown PDF format');
+            }
+        }
 
         function parseAndDisplayEvents(format) {
-            currentFormat = format;
-            btnTypeA.classList.toggle('active', format === 'A');
-            btnTypeB.classList.toggle('active', format === 'B');
-
             if (!currentPdfText) {
                 showFileInfo('❌ Please upload a PDF first.', true);
                 return;
