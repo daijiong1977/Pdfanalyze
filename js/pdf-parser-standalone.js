@@ -116,8 +116,9 @@ function extractStroke(description) {
  * Standardizes raw PDF text carefully.
  * KEY INSIGHT: PDFs fragment numbers differently depending on OCR/formatting:
  * - "1  0  0" (multiple spaces) = definitely fragmented
- * - "1 0 0" (single spaces) = likely fragmented, but check context
- * PRESERVE: "135-136", "13 & 14 200", etc. (real multi-digit numbers)
+ * - "1 3 5-1 3 6" (single spaces around hyphen) = event pair fragmentation
+ * - "1 0 0" before stroke keyword = distance fragmentation
+ * PRESERVE: "13 & 14 200", etc. (real multi-digit numbers with operators)
  */
 function cleanRawText(fullText) {
     let cleanedText = fullText;
@@ -125,15 +126,19 @@ function cleanRawText(fullText) {
     // 1. Standardize line breaks to spaces
     cleanedText = cleanedText.replace(/[\r\n]+/g, ' ');
     
-    // 2. Fix fragmented ABBREVIATIONS with dots: "M . R ." → "MR"
+    // 2. Fix FRAGMENTED EVENT PAIRS first: "1 3 5-1 3 6" → "135-136"
+    // Pattern: single digit-space-digit-space-digit, hyphen, single digit-space-digit-space-digit
+    cleanedText = cleanedText.replace(/(\d)\s(\d)\s(\d)\s*-\s*(\d)\s(\d)\s(\d)/g, '$1$2$3-$4$5$6');
+    
+    // 3. Fix fragmented ABBREVIATIONS with dots: "M . R ." → "MR"
     cleanedText = cleanedText.replace(/([A-Z])\s*\.\s+([A-Z])\s*\./g, '$1$2');
     
-    // 3. Fix fragmented single-letter abbreviations: "I M" → "IM"
+    // 4. Fix fragmented single-letter abbreviations: "I M" → "IM"
     cleanedText = cleanedText.replace(/\bI\s+M\b/g, 'IM');
     cleanedText = cleanedText.replace(/\bF\s+R\b/g, 'FR');
     cleanedText = cleanedText.replace(/\bM\s+R\b/g, 'MR');
     
-    // 4. Fix fragmented NUMBERS with context awareness
+    // 5. Fix fragmented NUMBERS with context awareness
     // Fix "100 M.R." or "100 IM" patterns (distance + stroke/abbreviation)
     // These are clearly 3-digit distances, not event numbers
     cleanedText = cleanedText.replace(/(\d)\s+(\d)\s+(\d)(?=\s+(?:M\.R|MR|IM|FR|M|F))/g, '$1$2$3'); // "100 MR" or "100 IM"
@@ -142,10 +147,10 @@ function cleanRawText(fullText) {
     cleanedText = cleanedText.replace(/(\d)\s{2,}(\d)\s{2,}(\d)/g, '$1$2$3');
     cleanedText = cleanedText.replace(/(\d)\s{2,}(\d)\s{2,}(\d)\s{2,}(\d)/g, '$1$2$3$4');
     
-    // 5. Clean up spaces around hyphens: "135 - 136" → "135-136"
+    // 6. Clean up spaces around hyphens: "135 - 136" → "135-136"
     cleanedText = cleanedText.replace(/(\d)\s*-\s*(\d)/g, '$1-$2');
     
-    // 6. Normalize multiple spaces to single space
+    // 7. Normalize multiple spaces to single space
     cleanedText = cleanedText.replace(/\s{2,}/g, ' ');
 
     return cleanedText.trim();
